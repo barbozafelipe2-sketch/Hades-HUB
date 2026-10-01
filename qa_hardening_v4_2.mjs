@@ -38,7 +38,7 @@ globalThis.fetch=originalFetch;
 let ps=providerStatus();
 assert.equal(ps.market.configured,false); assert.equal(ps.supabase.implemented,false); pass('Incomplete licensed-feed credentials cannot report configured and Supabase cannot report active customer system');
 process.env.MARKET_DATA_PROVIDER='vendor'; process.env.MARKET_DATA_API_KEY='key'; delete process.env.MARKET_DATA_BASE_URL;
-ps=providerStatus(); assert.equal(ps.market.configured,false); pass('Licensed feed requires provider + key + base URL');
+ps=providerStatus(); assert.equal(ps.market.configured,false); pass('Licensed feed readiness requires complete credentials');
 process.env.MARKET_DATA_BASE_URL='https://feed.example.test';
 ps=providerStatus(); assert.equal(ps.market.configured,true); assert.equal(ps.market.verified,false); assert.equal(ps.market.dataClass,'licensed_feed_configured_unverified'); pass('Market credentials never masquerade as a verified feed before a successful licensed world-state');
 delete process.env.MARKET_DATA_PROVIDER; delete process.env.MARKET_DATA_API_KEY; delete process.env.MARKET_DATA_BASE_URL; delete process.env.TWELVE_DATA_API_KEY; delete process.env.FINNHUB_API_KEY;

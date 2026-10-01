@@ -16,6 +16,7 @@ Implemented in this stage:
 - **Legacy migration is non-destructive**. Existing single-owner state is copied once into the bootstrap owner's commercial workspace. The legacy source is preserved until verification and the migration writes an explicit completion marker.
 - **Public signup is closed by default** and requires Identity plus legal entity, Terms, Risk Disclosure, Privacy URLs, version identifiers, `KAIROS_ALLOW_SIGNUPS=true`, and the separate `KAIROS_PUBLIC_SIGNUP_READY=true` release switch.
 - **Historical evidence remains point-in-time**: stored market values keep provider, observation time, exchange, delay class, license identifier and point-in-time status. AI output cannot create or overwrite prices, closes, returns, quantities or benchmarks.
+- **Market feed readiness requires an explicit license identifier**: configure `KAIROS_LICENSED_MARKET_LICENSE_ID`; any Twelve Data or Finnhub fallback also needs its provider-specific license identifier. Without one, the quote/history is unavailable for persistence or paper fills.
 - **Unconfirmed email signups do not activate a tenant**. The pre-confirmation record is recoverable; the customer/tenant records are provisioned only after Identity confirms the address.
 - **Identity passwords are never stored in KAIROS**. Commercial user records contain Identity mapping and authorization metadata only.
 - **Scheduled Trace jobs fan out by active tenant** rather than assuming one global owner.

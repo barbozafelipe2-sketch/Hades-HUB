@@ -10,6 +10,7 @@ try{
   await client.query(sql);
   await client.query('TRUNCATE paper_transactions, paper_orders, paper_accounts CASCADE');
   await client.query("INSERT INTO paper_accounts(id,tenant_id) VALUES ('acct-a','tenant_a'),('acct-b','tenant_b')");
+  await assert.rejects(()=>client.query("INSERT INTO paper_orders(id,tenant_id,account_id,idempotency_key,symbol,side,quantity,filled_quantity,status,execution_price,source,license_id) VALUES ('bad-fill','tenant_a','acct-a','bad-fill-key','AAPL','buy',1,1,'filled',100,'licensed_market_feed','operator-attested')"));
   await client.query("INSERT INTO paper_transactions(id,tenant_id,account_id,idempotency_key,transaction_type,symbol,quantity,unit_price) VALUES ('buy-a','tenant_a','acct-a','idem-buy-a','BUY','AAPL',2,100)");
   const alpha=await client.query("SELECT * FROM paper_transactions WHERE tenant_id='tenant_a'");
   const beta=await client.query("SELECT * FROM paper_transactions WHERE tenant_id='tenant_b'");

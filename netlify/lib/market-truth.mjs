@@ -10,9 +10,12 @@ const canon=s=>String(s||'').trim().toUpperCase();
 const configured=(name)=>!!cleanSecret(getEnv(name));
 const nowISO=()=>new Date().toISOString();
 
-export function licensedMarketConfigured(){return !!String(getEnv('KAIROS_LICENSED_MARKET_BASE_URL')||'').trim()&&configured('KAIROS_LICENSED_MARKET_API_KEY');}
+export function licensedMarketConfigured(){return !!String(getEnv('KAIROS_LICENSED_MARKET_BASE_URL')||'').trim()&&configured('KAIROS_LICENSED_MARKET_API_KEY')&&configured('KAIROS_LICENSED_MARKET_LICENSE_ID');}
 function metadata(symbol,data,source,{pointInTime=false}={}){
-  const licenseId=String(data?.license_id||data?.licenseId||getEnv(`${source.toUpperCase().replace(/[^A-Z0-9]+/g,'_')}_LICENSE_ID`)||'operator-attested').slice(0,120);
+  const sourceKey=source.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+  const configuredLicense=source==='licensed_market_feed'?getEnv('KAIROS_LICENSED_MARKET_LICENSE_ID'):getEnv(`${sourceKey}_LICENSE_ID`);
+  const licenseId=String(data?.license_id||data?.licenseId||configuredLicense||'').trim().slice(0,120);
+  if(!licenseId)throw new Error('MARKET_LICENSE_ID_REQUIRED');
   const price=Number(data?.price??data?.close??data?.value);
   if(!Number.isFinite(price)||price<=0) throw new Error('MARKET_VALUE_INVALID');
   return {symbol:canon(symbol),price,source:String(data?.source||source).slice(0,80),asof:String(data?.asof||data?.asOf||data?.datetime||nowISO()),exchange:data?.exchange?String(data.exchange).slice(0,80):null,delay_class:String(data?.delay_class||data?.delayClass||getEnv('KAIROS_MARKET_DELAY_CLASS','unknown')).slice(0,40),license_id:licenseId,point_in_time:pointInTime===true,provider:String(data?.provider||source),currency:String(data?.currency||'USD'),change:Number.isFinite(Number(data?.change))?Number(data.change):null,percentChange:Number.isFinite(Number(data?.percentChange??data?.percent_change))?Number(data.percentChange??data.percent_change):null};
@@ -39,8 +42,9 @@ async function fallbackQuote(symbol,preferred=null){
   let last;
   for(const p of providers){try{
     const q=p==='twelve'?await twelveQuote(symbol):await finnhubQuote(symbol);
+    const value=metadata(symbol,q,p==='twelve'?'twelve_data':'finnhub',{pointInTime:false});
     stickyFallback.set(symbol,p);
-    return metadata(symbol,q,p==='twelve'?'twelve_data':'finnhub',{pointInTime:false});
+    return value;
   }catch(e){last=e;}}
   throw last||new Error('MARKET_SYMBOL_UNAVAILABLE');
 }
@@ -74,7 +78,7 @@ export async function closes(symbol,from,to){
     const preferred=stickyFallback.get(s);
     const order=[preferred,'twelve','finnhub'].filter((x,i,a)=>x&&a.indexOf(x)===i);
     let last;
-    for(const p of order){if((p==='twelve'&&!twelveConfigured())||(p==='finnhub'&&!finnhubConfigured()))continue;try{const result=p==='twelve'?await twelveSeries(s,{startDate:from,endDate:to,outputsize:90}):await finnhubSeries(s,{startDate:from,endDate:to,outputsize:90});rows=result.points;source=p==='twelve'?'twelve_data':'finnhub';stickyFallback.set(s,p);break;}catch(e){last=e;}}
+    for(const p of order){if((p==='twelve'&&!twelveConfigured())||(p==='finnhub'&&!finnhubConfigured()))continue;try{const result=p==='twelve'?await twelveSeries(s,{startDate:from,endDate:to,outputsize:90}):await finnhubSeries(s,{startDate:from,endDate:to,outputsize:90});const candidate=(result.points||[]).map(r=>metadata(s,{...r,asof:r.asof||r.asOf||`${String(r.date||'').slice(0,10)}T23:59:59Z`},p==='twelve'?'twelve_data':'finnhub',{pointInTime:true})).filter(r=>r.asof>=String(from||'')&&r.asof.slice(0,10)<=String(to||'9999-12-31'));if(candidate.length<2)throw new Error('MARKET_CLOSES_TOO_THIN');stickyFallback.set(s,p);return candidate;}catch(e){last=e;}}
     if(!rows) throw new Error(`MARKET_CLOSES_UNAVAILABLE:${s}:${String(last?.message||'no covered fallback')}`);
   }
   return rows.map(r=>metadata(s,{...r,asof:r.asof||r.asOf||`${String(r.date||'').slice(0,10)}T23:59:59Z`},source,{pointInTime:true})).filter(r=>r.asof>=String(from||'')&&r.asof.slice(0,10)<=String(to||'9999-12-31'));

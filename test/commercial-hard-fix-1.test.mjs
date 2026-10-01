@@ -131,6 +131,7 @@ process.env.KAIROS_PREVIEW_SMOKE_APPROVED='true';
 process.env.KAIROS_LEGACY_AUTH_ENABLED='false';
 process.env.KAIROS_LICENSED_MARKET_BASE_URL='https://licensed.example';
 process.env.KAIROS_LICENSED_MARKET_API_KEY='qa-key';
+process.env.KAIROS_LICENSED_MARKET_LICENSE_ID='licensed-qa';
 process.env.KAIROS_TENANT_DAILY_USD='10';process.env.KAIROS_SITE_DAILY_USD='100';
 process.env.STRIPE_SECRET_KEY='sk_test_qa';process.env.STRIPE_WEBHOOK_SECRET='whsec_qa';process.env.KAIROS_STRIPE_PRO_PRICE_ID='price_qa';
 process.env.KAIROS_LEGAL_REVIEW_VERSION='qa-review-v1';

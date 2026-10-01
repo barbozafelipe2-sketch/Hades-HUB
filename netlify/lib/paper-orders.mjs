@@ -13,7 +13,7 @@ function freshMark(marks,symbol){
   const mark=marks?.[symbol];
   const price=finitePositive(mark?.price);
   if(!price || isStaleMark(mark)) return null;
-  if(mark?.manual===true || mark?.license_id==='unverified' || !mark?.license_id) return null;
+  if(mark?.manual===true || ['unverified','operator-attested'].includes(String(mark?.license_id||'')) || !mark?.license_id) return null;
   if(!VERIFIED_MARK_SOURCES.has(String(mark?.source||'').toLowerCase())) return null;
   return {price,mark};
 }

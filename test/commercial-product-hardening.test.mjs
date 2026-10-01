@@ -11,8 +11,11 @@ process.env.KAIROS_DATABASE_QA_MEMORY='true';
 process.env.KAIROS_DATA_BACKEND='blobs';
 process.env.KAIROS_LICENSED_MARKET_BASE_URL='https://licensed.test';
 process.env.KAIROS_LICENSED_MARKET_API_KEY='licensed-secret';
+process.env.KAIROS_LICENSED_MARKET_LICENSE_ID='licensed-qa-account';
 process.env.TWELVE_DATA_API_KEY='twelve-test-key';
+process.env.TWELVE_DATA_LICENSE_ID='twelve-qa-account';
 process.env.FINNHUB_API_KEY='finnhub-test-key';
+process.env.FINNHUB_LICENSE_ID='finnhub-qa-account';
 delete process.env.NETLIFY; delete process.env.SITE_ID;
 
 const originalFetch=globalThis.fetch;
@@ -46,6 +49,13 @@ try{
   assert.equal(fallback.source,'twelve_data'); assert.ok(fallback.license_id); assert.equal(fallback.point_in_time,false);
   const hist=await closes('AAPL','2026-09-30','2026-10-01');
   assert.equal(hist.length,2); assert.ok(hist.every(x=>x.point_in_time===true&&x.source==='twelve_data'));
+
+  // A provider key without a configured license identifier cannot manufacture licensed provenance.
+  delete process.env.TWELVE_DATA_LICENSE_ID;delete process.env.FINNHUB_LICENSE_ID;delete process.env.KAIROS_LICENSED_MARKET_LICENSE_ID;
+  clearMarketTruthCache();
+  globalThis.fetch=async input=>{const u=new URL(input);if(u.hostname==='licensed.test')return new Response('{}',{status:503});if(u.hostname==='api.twelvedata.com'&&u.pathname==='/quote')return new Response(JSON.stringify({close:'123.45',datetime:'2026-10-01 15:00:00'}),{status:200});if(u.hostname==='finnhub.io')return new Response(JSON.stringify({c:123.45,t:1790866800}),{status:200});return new Response('{}',{status:503});};
+  await assert.rejects(()=>quote('NO_LICENSE_ID'),/MARKET_DATA_UNAVAILABLE/);
+  assert.equal(commercialReleaseGate({identityConfigured:true,legalConfigured:true,billingConfigured:true}).licensedFeedConfigured,false);
 
   const aiPrice=stripAIPricing({benchmarks:{spy_price:500},instruments:[{symbol:'SPY',price:500} ]});
   assert.equal(aiPrice.benchmarks.spy_price,null); assert.equal(aiPrice.instruments[0].price,null,'AI-origin numbers are removed before market state is surfaced');

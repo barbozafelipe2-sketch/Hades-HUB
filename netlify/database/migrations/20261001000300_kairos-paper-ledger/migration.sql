@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS paper_orders (
   UNIQUE (tenant_id, idempotency_key),
   UNIQUE (tenant_id, id),
   FOREIGN KEY (tenant_id, account_id) REFERENCES paper_accounts(tenant_id, id),
-  CHECK (status <> 'filled' OR (filled_quantity = quantity AND execution_price > 0 AND source <> 'manual' AND license_id IS NOT NULL AND license_id <> 'unverified'))
+  CHECK (status <> 'filled' OR (filled_quantity = quantity AND execution_price > 0 AND source <> 'manual' AND license_id IS NOT NULL AND license_id NOT IN ('unverified','operator-attested')))
 );
 CREATE INDEX IF NOT EXISTS paper_orders_account_idx ON paper_orders(tenant_id, account_id, created_at);
 

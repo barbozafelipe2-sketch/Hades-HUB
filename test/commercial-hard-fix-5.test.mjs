@@ -13,6 +13,7 @@ process.env.KAIROS_APP_URL='https://kairos.example';
 process.env.KAIROS_LEGACY_AUTH_ENABLED='false';
 process.env.KAIROS_LICENSED_MARKET_BASE_URL='https://market.example';
 process.env.KAIROS_LICENSED_MARKET_API_KEY='qa-market-key';
+process.env.KAIROS_LICENSED_MARKET_LICENSE_ID='market-qa-license';
 process.env.KAIROS_TENANT_DAILY_USD='10';
 process.env.KAIROS_SITE_DAILY_USD='100';
 process.env.STRIPE_SECRET_KEY='sk_test_kairos';
