@@ -82,6 +82,7 @@ export async function commercialStatus(session,{includeAudit=false}={}){
     tenant:{id:tenant.id,name:tenant.name,plan:access.plan},
     access:{allowed:access.access,status:access.status,reason:access.reason,currentPeriodEnd:access.currentPeriodEnd},
     usage,
+    costCaps:{tenantDailyUsd:Number(getEnv('KAIROS_TENANT_DAILY_USD'))||null,siteDailyUsd:Number(getEnv('KAIROS_SITE_DAILY_USD'))||null},
     billing:{configured:billing?.provider==='stripe',provider:billing?.provider||null,subscriptionStatus:billing?.subscriptionStatus||null,customerLinked:!!billing?.customerId,subscriptionLinked:!!billing?.subscriptionId,cancelAtPeriodEnd:billing?.cancelAtPeriodEnd===true,lastInvoiceStatus:billing?.lastInvoiceStatus||null},
   };
   if(includeAudit && session?.role==='owner') result.audit=await listAuditEvents(tenantId,{limit:50});

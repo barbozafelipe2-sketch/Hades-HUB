@@ -13,6 +13,7 @@ function freshMark(marks,symbol){
   const mark=marks?.[symbol];
   const price=finitePositive(mark?.price);
   if(!price || isStaleMark(mark)) return null;
+  if(mark?.manual===true || mark?.license_id==='unverified' || !mark?.license_id) return null;
   if(!VERIFIED_MARK_SOURCES.has(String(mark?.source||'').toLowerCase())) return null;
   return {price,mark};
 }
@@ -87,7 +88,7 @@ async function executeMarketPaperOrderUnlocked({symbol,side,quantity,fees=0,note
   if(priorTx){
     const same=String(priorTx.type||'').toUpperCase()===side && priorTx.symbol===symbol && Math.abs(Number(priorTx.quantity||0)-quantity)<1e-10;
     if(!same) throw new Error('PAPER_FILL_IDEMPOTENCY_CONFLICT');
-    const rec={id,symbol,side,orderType:'MARKET',quantity,fees:Number(priorTx.fees||fees||0),status:'FILLED',fillPrice:Number(priorTx.unitPrice),createdAt:priorOrder?.createdAt||priorTx.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString(),filledAt:priorOrder?.filledAt||priorTx.createdAt||new Date().toISOString(),transactionId:txId,note:String(priorOrder?.note||note||'')};
+    const rec={id,symbol,side,orderType:'MARKET',quantity,fees:Number(priorTx.fees||fees||0),status:'FILLED',fillPrice:Number(priorTx.unitPrice),createdAt:priorOrder?.createdAt||priorTx.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString(),filledAt:priorOrder?.filledAt||priorTx.createdAt||new Date().toISOString(),transactionId:txId,marketEvidence:{source:priorTx.source,asof:priorTx.asof,exchange:priorTx.exchange,delay_class:priorTx.delay_class,license_id:priorTx.license_id,point_in_time:priorTx.point_in_time},note:String(priorOrder?.note||note||'')};
     if(!priorOrder || priorOrder.status!=='FILLED' || priorOrder.transactionId!==txId){
       const nextOrders=priorOrder?orders.map(o=>o.id===id?rec:o):[...orders,rec];
       await savePaperOrders(nextOrders);
@@ -99,10 +100,10 @@ async function executeMarketPaperOrderUnlocked({symbol,side,quantity,fees=0,note
   const before=derivePortfolio(txs,marks);
   if(side==='SELL'){ const pos=before.positions.find(p=>p.symbol===symbol); if(Number(pos?.quantity||0)+1e-10<quantity) throw new Error('SELL_EXCEEDS_POSITION'); }
   if(side==='BUY' && Number(before.cash||0)+1e-8<quantity*fm.price+fees) throw new Error('INSUFFICIENT_TRACKED_CASH');
-  const tx=normalizeTransaction({id:txId,type:side,symbol,quantity,unitPrice:fm.price,fees,date:new Date().toISOString().slice(0,10),note:String(note||'Market paper order').slice(0,500)});
+  const tx=normalizeTransaction({id:txId,type:side,symbol,quantity,unitPrice:fm.price,fees,date:new Date().toISOString().slice(0,10),note:String(note||'Market paper order').slice(0,500),...fm.mark});
   const nextTxs=priorTx?txs:[...txs,tx];
   if(!priorTx) await saveTransactions(nextTxs);
-  const rec={id,symbol,side,orderType:'MARKET',quantity,fees,status:'FILLED',fillPrice:fm.price,createdAt:priorOrder?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString(),filledAt:new Date().toISOString(),transactionId:txId,note:String(note||'')};
+  const rec={id,symbol,side,orderType:'MARKET',quantity,fees,status:'FILLED',fillPrice:fm.price,createdAt:priorOrder?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString(),filledAt:new Date().toISOString(),transactionId:txId,marketEvidence:{source:fm.mark.source,asof:fm.mark.asOf,exchange:fm.mark.exchange,delay_class:fm.mark.delay_class,license_id:fm.mark.license_id,point_in_time:fm.mark.point_in_time},note:String(note||'')};
   const nextOrders=priorOrder?orders.map(o=>o.id===id?rec:o):[...orders,rec];
   await savePaperOrders(nextOrders);
   return {order:rec,transaction:tx,portfolio:derivePortfolio(nextTxs,marks),idempotent:!!priorTx};
@@ -135,10 +136,10 @@ async function processPendingPaperOrdersUnlocked(){
         if(Number(pos?.quantity||0)+1e-10<Number(o.quantity||0)) throw new Error('SELL_EXCEEDS_POSITION');
       }
       if(o.side==='BUY' && Number(before.cash||0)+1e-8 < Number(o.quantity||0)*fm.price+Number(o.fees||0)) throw new Error('INSUFFICIENT_TRACKED_CASH_AT_FILL');
-      const tx=normalizeTransaction({id:txId,type:o.side,symbol:o.symbol,quantity:o.quantity,unitPrice:fm.price,fees:o.fees,date:new Date().toISOString().slice(0,10),note:`Filled ${o.orderType} paper order${o.note?` · ${o.note}`:''}`});
+      const tx=normalizeTransaction({id:txId,type:o.side,symbol:o.symbol,quantity:o.quantity,unitPrice:fm.price,fees:o.fees,date:new Date().toISOString().slice(0,10),note:`Filled ${o.orderType} paper order${o.note?` · ${o.note}`:''}`,...fm.mark});
       derivePortfolio([...txs,tx],marks);
       txs.push(tx);
-      Object.assign(o,{status:'FILLED',fillPrice:fm.price,filledAt:new Date().toISOString(),updatedAt:new Date().toISOString(),transactionId:tx.id});
+      Object.assign(o,{status:'FILLED',fillPrice:fm.price,marketEvidence:{source:fm.mark.source,asof:fm.mark.asOf,exchange:fm.mark.exchange,delay_class:fm.mark.delay_class,license_id:fm.mark.license_id,point_in_time:fm.mark.point_in_time},filledAt:new Date().toISOString(),updatedAt:new Date().toISOString(),transactionId:tx.id});
       fills.push({orderId:o.id,symbol:o.symbol,side:o.side,quantity:o.quantity,fillPrice:fm.price});
     }catch(e){
       Object.assign(o,{status:'REJECTED',rejectedAt:new Date().toISOString(),updatedAt:new Date().toISOString(),reason:String(e.message||e)});

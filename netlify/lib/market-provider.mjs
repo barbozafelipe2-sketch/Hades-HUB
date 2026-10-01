@@ -4,11 +4,12 @@ import { providerStatus } from './providers.mjs';
 import { auditExistingJSON, publicGateMeta } from './ai-gate.mjs';
 import { anyAIConfigured } from './llm.mjs';
 import { marketQuotesConfigured, marketQuotes } from './market-quotes.mjs';
+import { licensedMarketConfigured } from './market-truth.mjs';
 import { twelveConfigured } from './twelve-data.mjs';
 import { finnhubConfigured } from './finnhub.mjs';
 
 
-function stripAIPricing(data){
+export function stripAIPricing(data){
   const out={...(data||{})};
   const cleanedBench={...(out.benchmarks||{})}; delete cleanedBench.sp500_level;
   out.benchmarks={...cleanedBench,spy_price:null,gold_price:null,btc_price:null,us10y_yield:null,dxy:null};
@@ -53,6 +54,7 @@ async function auditedResearchWorldState(input){
  const data=stripAIPricing(audited.generated.data); data._meta={...(data._meta||candidate._meta||{}),market_source:'ai_context_only',fallback_used:true,final_gate:publicGateMeta(audited),provider:candidate._meta?.provider||audited.generated?.provider,price_authority:'none',ai_prices_stripped:true}; return data;
 }
 function priceAuthorityLabel(){
+  if(licensedMarketConfigured())return 'licensed_market_feed';
   const t=twelveConfigured(); const f=finnhubConfigured();
   if(t&&f) return 'twelve_data+finnhub_sticky';
   if(t) return 'twelve_data';
@@ -72,7 +74,8 @@ async function licensedWorldState(input){
    }
    catch(e){ researchError=String(e?.message||e).slice(0,240); }
  }
- const instruments=quotes.map(q=>({symbol:q.symbol,price:q.price,as_of:q.asOf,currency:q.currency,exchange:q.exchange,change:q.change,percent_change:q.percentChange,confidence:q.stale?'moderate':'high',source_url:null,source:q.provider||'market_quote',stale:!!q.stale}));
+ const instruments=quotes.map(q=>({symbol:q.symbol,price:q.price,as_of:q.asof||q.asOf,currency:q.currency,exchange:q.exchange,change:q.change,percent_change:q.percentChange,confidence:q.stale?'moderate':'high',source_url:null,source:q.source||q.provider||'market_quote',delay_class:q.delay_class||'unknown',license_id:q.license_id||'unverified',point_in_time:q.point_in_time===true,stale:!!q.stale}));
+ const priceProvenance=Object.fromEntries(quotes.map(q=>[q.symbol,{source:q.source||q.provider,asof:q.asof||q.asOf,exchange:q.exchange||null,delay_class:q.delay_class||'unknown',license_id:q.license_id||'unverified',point_in_time:q.point_in_time===true}]));
  const btc=instruments.find(i=>i.symbol==='BTC')?.price??null;
  const spy=instruments.find(i=>i.symbol==='SPY')?.price??null;
  const base=research||{};
@@ -102,7 +105,7 @@ async function licensedWorldState(input){
      research_requested:includeAIContext,
      research_ok:includeAIContext ? !researchFailed : null,
      research_skipped:!includeAIContext,
-     quote_errors:errors.slice(0,12),
+     price_provenance:priceProvenance,quote_errors:errors.slice(0,12),
      deterministic_validation:{pass:true,findings},
      lastError:researchError||null
    }

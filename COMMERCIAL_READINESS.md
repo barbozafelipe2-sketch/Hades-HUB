@@ -7,7 +7,7 @@ KAIROS is being prepared as a web/PWA paper-research product first. This stage c
 Implemented in this stage:
 
 - **Commercial multi-tenant account model** with `userId`, `tenantId`, role and tenant status.
-- **Netlify Identity** is the primary commercial identity provider. The legacy signed admin path remains only as an owner-migration bridge and can be disabled after the owner account is linked.
+- **Netlify Identity** is the only customer login. The legacy signed admin path is disabled by default; the owner migration bridge is available only when `KAIROS_LEGACY_AUTH_ENABLED=true` is explicitly set during migration.
 - **Netlify Database/Postgres is authoritative for transactional/customer state**: auth mappings, tenant records, profile/settings, portfolio transactions/marks, paper orders/watchlist, decision index/records, mirrors, workflow limits and restore/recovery records.
 - **Netlify Blobs remains for artifact/history workloads** such as dated Trace history, snapshots, background-job artifacts and operational traces.
 - **Request-local tenant context uses AsyncLocalStorage** so overlapping warm Function requests cannot overwrite each other's tenant selection.
@@ -15,6 +15,7 @@ Implemented in this stage:
 - **Deploy Preview isolation is defense-in-depth**: Netlify Database uses an isolated preview database branch; KAIROS also namespaces every Database record by production vs deploy ID so a preview does not query production rows copied into its branch; artifact Blobs continue using deploy-scoped storage outside production.
 - **Legacy migration is non-destructive**. Existing single-owner state is copied once into the bootstrap owner's commercial workspace. The legacy source is preserved until verification and the migration writes an explicit completion marker.
 - **Public signup is closed by default** and requires Identity plus legal entity, Terms, Risk Disclosure, Privacy URLs, version identifiers, `KAIROS_ALLOW_SIGNUPS=true`, and the separate `KAIROS_PUBLIC_SIGNUP_READY=true` release switch.
+- **Historical evidence remains point-in-time**: stored market values keep provider, observation time, exchange, delay class, license identifier and point-in-time status. AI output cannot create or overwrite prices, closes, returns, quantities or benchmarks.
 - **Unconfirmed email signups do not activate a tenant**. The pre-confirmation record is recoverable; the customer/tenant records are provisioned only after Identity confirms the address.
 - **Identity passwords are never stored in KAIROS**. Commercial user records contain Identity mapping and authorization metadata only.
 - **Scheduled Trace jobs fan out by active tenant** rather than assuming one global owner.
@@ -33,9 +34,12 @@ On the first commercial production deploy, Database migrations create the KAIROS
 Hard Fix 1/3 through 3/3, the privacy/deletion lifecycle and public release controls are implemented in this branch. GitHub Actions verifies the repository checks; it does not validate live services or production configuration.
 
 Before public launch, complete:
-- End-to-end runtime tests for signup/login, tenant isolation, Stripe test events, market data, AI Gateway, paper orders, backup/restore and deletion.
+- Qualified counsel review, including securities/regulatory positioning and launch copy.
+- Privacy review of retention, deletion, exports and the final customer-facing policy.
+- Written market-data license approval for the intended products, history and display use.
+- A live Git-backed Deploy Preview smoke test for login, two isolated tenants, Stripe test events, licensed market data, AI Gateway, paper orders, backup/restore and deletion. Netlify must apply migrations to the preview database; production signup remains closed.
+- Set and verify the preview-smoke release flag only after that test passes; do not set public release approval until all legal and runtime gates are complete.
 - The final branch audit and polish before any merge to `main`.
-- Qualified legal, privacy, securities/regulatory and market-data licensing reviews.
 
 Technical wording and architecture do not by themselves determine investment-adviser or broker-dealer obligations. U.S. launch positioning and any paid securities analysis should be reviewed by qualified securities counsel before public sale.
 
@@ -88,6 +92,14 @@ Default internal budgets are conservative release guardrails and can be changed 
 
 These are **operational cost units**, not customer-visible token balances and not a guarantee of a particular number of AI calls. Provider pricing/model routing can change independently.
 
+For each actual model request, KAIROS records provider, model, estimated input/output tokens, estimated USD, feature, tenant and request id. `KAIROS_TENANT_DAILY_USD` and `KAIROS_SITE_DAILY_USD` are hard stop limits. When a limit is reached the affected feature returns its deterministic degraded response; it must not retry through a more expensive model. An estimate is a release-control estimate, not a provider invoice.
+
+### Model routing and multi-agent cost
+
+The Netlify AI Gateway is a model access/routing layer. OpenRouter can be configured as a provider path, but this does not itself create or supervise runtime subagents. Multiple evidence-gathering calls can increase total input/output tokens and tool overhead, even when each worker uses a cheaper model. KAIROS therefore does not fan out customer requests to agents by default.
+
+Before enabling multi-agent analysis, benchmark it against the current single-pass route on a fixed, versioned evaluation set. Compare total USD per completed task, latency, unsupported claims, citation/source coverage, numeric-field violations, and disagreement resolution. Require lower cost without a worse result on any safety/credibility metric, keep the same per-request and daily USD caps across the whole fan-out, and fail closed to deterministic output when the cap is exhausted. Keep market numbers and evidence selection outside model authority. Recheck provider data-retention terms and Netlify/OpenRouter routing eligibility before any production use.
+
 ### Remaining before public paid launch
 
 The Hard Fix 3/3 implementation and privacy/release controls are included below. Live runtime testing and external reviews listed above remain release gates.
@@ -124,3 +136,13 @@ This implements the technical lifecycle. Final privacy-policy wording, statutory
 - Pre-login copy states that paper results are descriptive rather than predictive.
 
 A green technical gate means the configured technical prerequisites are present. It does not determine whether KAIROS is legally permitted to offer a particular service or claim in a jurisdiction. Keep public release approval false until qualified counsel and relevant business/data-provider reviews are complete.
+
+## Explicit human release gates
+
+- Securities/regulatory counsel approves the product scope, jurisdiction and claims.
+- Privacy counsel or the designated privacy owner approves notices, retention, deletion and export behavior.
+- The market-data provider confirms the required commercial license and display/history rights in writing.
+- An operator runs and records the live Deploy Preview smoke test, including the preview-only database migrations and the cases listed above.
+- The final audit reviews the exact tested commit before any merge to `main`.
+
+Until those are complete, keep signup closed, `KAIROS_PREVIEW_SMOKE_APPROVED=false`, `KAIROS_PUBLIC_RELEASE_APPROVED=false`, `KAIROS_PRODUCT_MODE=paper_research` and `KAIROS_REAL_MONEY_EXECUTION=false`.

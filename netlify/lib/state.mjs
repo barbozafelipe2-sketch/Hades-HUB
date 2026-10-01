@@ -1,11 +1,12 @@
-import { getJSON, setJSON, listKeys, withKeyLock } from './store.mjs';
+import { getJSON, setJSON, listKeys, withKeyLock, currentTenantContext, ensureLegacyPaperLedger, relationalPaperLedgerEnabled, getRelationalTransactions, saveRelationalTransactions, getRelationalMarks, saveRelationalMarks, getRelationalOrders, saveRelationalOrders } from './store.mjs';
+import { saveMarketSnapshots } from './database.mjs';
 import { derivePortfolio, performanceFromSnapshots, normalizeTransaction, normalizeSymbol, validateTransactionLedger } from './portfolio.mjs';
 import { normalizeSymbolList } from './input.mjs';
 
 export const DEFAULT_PROFILE={
   name:'Private User',email:'',country:'United States',baseCurrency:'USD',goal:'Long-term wealth',targetAmount:250000,horizon:'10y+',riskStyle:'Moderate',contributionAmount:1000,contributionFrequency:'Monthly',investorType:'Long-term builder',experience:'Intermediate',riskCapacity:'Moderate',maxDrawdownTolerance:20,liquidityNeed:'Moderate',emergencyReserveMonths:6,incomeStability:'Stable',taxResidency:'United States'
 };
-export const DEFAULT_SETTINGS={displayMode:'auto',autoMarketMarks:true,onboardingComplete:false,evolutionAutoRun:true,evolutionAutoPromote:false};
+export const DEFAULT_SETTINGS={displayMode:'auto',autoMarketMarks:true,onboardingComplete:false,evolutionAutoRun:true,evolutionAutoPromote:false,simulationRole:'long_term_investor',universe:['US Equity'],paperDisclosureAccepted:false};
 
 function text(v, fallback='', max=100){
   const s=String(v ?? fallback).replace(/[\u0000-\u001F\u007F]/g,'').trim();
@@ -51,6 +52,9 @@ export function sanitizeSettings(input={}){
     onboardingComplete:s.onboardingComplete===true,
     evolutionAutoRun:true, // always on
     evolutionAutoPromote:s.evolutionAutoPromote===true,
+    simulationRole:['long_term_investor','researcher','student'].includes(s.simulationRole)?s.simulationRole:'long_term_investor',
+    universe:Array.isArray(s.universe)?[...new Set(s.universe.filter(x=>['US Equity','Crypto','Bonds','Commodities','Global Equity'].includes(x)))].slice(0,5):['US Equity'],
+    paperDisclosureAccepted:s.paperDisclosureAccepted===true,
   };
 }
 export function modelSafeProfile(profile={}){
@@ -63,15 +67,15 @@ export async function getProfile(){ return sanitizeProfile(await getJSON('user/p
 export async function saveProfile(p){ const current=await getJSON('user/profile',{}); const v={...sanitizeProfile({...current,...p}),updatedAt:new Date().toISOString()}; await setJSON('user/profile',v); return v; }
 export async function getSettings(){ return sanitizeSettings(await getJSON('user/settings',{})); }
 export async function saveSettings(s){ const current=await getJSON('user/settings',{}); const v={...sanitizeSettings({...current,...s}),updatedAt:new Date().toISOString()}; await setJSON('user/settings',v); return v; }
-export async function getTransactions(){ return await getJSON('portfolio/transactions',[]); }
+export async function getTransactions(){ if(relationalPaperLedgerEnabled()){await ensureLegacyPaperLedger();return await getRelationalTransactions();}return await getJSON('portfolio/transactions',[]); }
 export async function saveTransactions(t){
   if(!Array.isArray(t) || t.length>10000) throw new Error('INVALID_TRANSACTIONS');
   const rows=validateTransactionLedger(t);
   const ids=new Set(); for(const x of rows){ if(ids.has(x.id)) throw new Error('DUPLICATE_TRANSACTION_ID'); ids.add(x.id); }
   derivePortfolio(rows,await getMarks());
-  await setJSON('portfolio/transactions',rows); return rows;
+  if(relationalPaperLedgerEnabled())await saveRelationalTransactions(rows);else await setJSON('portfolio/transactions',rows); return rows;
 }
-export async function getMarks(){ return await getJSON('portfolio/marks',{}); }
+export async function getMarks(){ if(relationalPaperLedgerEnabled()){await ensureLegacyPaperLedger();return await getRelationalMarks();}return await getJSON('portfolio/marks',{}); }
 export async function saveMarks(m){
   if(!m || typeof m!=='object' || Array.isArray(m)) throw new Error('INVALID_MARKS');
   const out={};
@@ -79,13 +83,13 @@ export async function saveMarks(m){
     const symbol=normalizeSymbol(raw); const price=Number(v?.price);
     if(!symbol || !Number.isFinite(price) || price<=0 || price>1e9) throw new Error('INVALID_MARK');
     const asOf=String(v?.asOf||''); if(!Number.isFinite(Date.parse(asOf))) throw new Error('INVALID_MARK_TIMESTAMP');
-    out[symbol]={...v,price,source:String(v?.source||'unknown').slice(0,80),asOf};
+    out[symbol]={...v,price,source:String(v?.source||'manual').slice(0,80),asOf,exchange:v?.exchange?String(v.exchange).slice(0,80):null,delay_class:String(v?.delay_class||v?.delayClass||'unknown').slice(0,40),license_id:String(v?.license_id||v?.licenseId||'unverified').slice(0,120),point_in_time:v?.point_in_time===true||v?.pointInTime===true,manual:v?.manual===true||!v?.license_id&&!v?.licenseId};
   }
-  await setJSON('portfolio/marks',out); return out;
+  if(relationalPaperLedgerEnabled())await saveRelationalMarks(out);else await setJSON('portfolio/marks',out); return out;
 }
 export async function getPortfolio(opts={}){ const [tx,marks]=await Promise.all([getTransactions(),getMarks()]); return {transactions:tx,marks,derived:derivePortfolio(tx,marks,opts)}; }
 export async function getWorldState(){ return await getJSON('trace/world-state/latest',null); }
-export async function saveWorldState(ws){ await setJSON('trace/world-state/latest',ws); await setJSON(`trace/world-state/${ws.date}`,ws); return ws; }
+export async function saveWorldState(ws){ await setJSON('trace/world-state/latest',ws); await setJSON(`trace/world-state/${ws.date}`,ws); const provenance=ws?._meta?.price_provenance||{}; const rows=[]; for(const i of ws?.instruments||[]){const p=provenance[i.symbol]||i;if(Number(i?.price)>0)rows.push({symbol:i.symbol,value_kind:'quote',value:i.price,source:p.source||i.source,asof:p.asof||i.as_of,exchange:p.exchange||i.exchange,delay_class:p.delay_class,license_id:p.license_id,point_in_time:p.point_in_time});} for(const [key,symbol] of [['spy_price','SPY'],['gold_price','GLD'],['btc_price','BTC']]){const value=Number(ws?.benchmarks?.[key]);const p=provenance[symbol];if(Number.isFinite(value)&&value>0&&p)rows.push({symbol,value_kind:'benchmark',value,source:p.source,asof:p.asof,exchange:p.exchange,delay_class:p.delay_class,license_id:p.license_id,point_in_time:p.point_in_time});} const tenant=currentTenantContext()?.tenantId;if(rows.length&&tenant)await saveMarketSnapshots(tenant,rows); return ws; }
 export async function getTraceStatus(){ return await getJSON('trace/status',{lastSuccessfulDate:null,lastAttemptAt:null,lastError:null,catchupRunning:false}); }
 export async function saveTraceStatus(v){ await setJSON('trace/status',v); return v; }
 export async function getDecisionIndex(){ return await getJSON('decisions/index',[]); }
@@ -122,12 +126,13 @@ export async function saveWalletMirror(v){ await setJSON('mirror/wallet/latest',
 
 // Paper broker state: server-side and persistent when the active store is persistent.
 export async function getPaperOrders(){
-  const rows=await getJSON('broker/orders',[]);
+  if(relationalPaperLedgerEnabled())await ensureLegacyPaperLedger();
+  const rows=relationalPaperLedgerEnabled()?await getRelationalOrders():await getJSON('broker/orders',[]);
   return Array.isArray(rows)?rows.slice(-500):[];
 }
 export async function savePaperOrders(v){
   const rows=Array.isArray(v)?v.slice(-500):[];
-  await setJSON('broker/orders',rows);
+  if(relationalPaperLedgerEnabled())await saveRelationalOrders(rows);else await setJSON('broker/orders',rows);
   return rows;
 }
 export async function getWatchlist(){

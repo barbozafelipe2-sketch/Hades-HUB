@@ -4,7 +4,8 @@ import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   databaseStatus,getSystemRecord,setSystemRecord,deleteSystemRecord,listSystemRecords,
-  getTenantRecord,setTenantRecord,deleteTenantRecord,listTenantRecords,withDatabaseLock
+  getTenantRecord,setTenantRecord,deleteTenantRecord,listTenantRecords,withDatabaseLock,
+  getPaperTransactions,replacePaperTransactions,getPaperMarks,replacePaperMarks,getRelationalPaperOrders,replaceRelationalPaperOrders,migrateLegacyPaperLedger
 } from './database.mjs';
 
 const memory = globalThis.__KAIROS_MEMORY_STORE__ ||= new Map();
@@ -45,21 +46,19 @@ function dataBackend(){
   if(explicit==='postgres'||explicit==='database') return 'postgres';
   return production()?'postgres':'blobs';
 }
-const DB_EXACT_KEYS=new Set([
-  'user/profile','user/settings','portfolio/transactions','portfolio/marks','broker/orders','broker/watchlist',
-  'mirror/ai/latest','mirror/ai/history','mirror/wallet/latest','evolution/state','decisions/index','trace/status',
-  'trace/world-state/latest'
-]);
+const DB_EXACT_KEYS=new Set(['user/profile','user/settings']);
 function databaseBackedKey(key){
   const k=String(key||'').replace(/^\/+/, '');
-  return DB_EXACT_KEYS.has(k)||['decisions/','limits/','restore/','commercial/'].some(prefix=>k.startsWith(prefix));
+  return DB_EXACT_KEYS.has(k)||k.startsWith('draft/');
 }
 function databaseBackedPrefix(prefix){
   const p=String(prefix||'').replace(/^\/+/, '');
-  if(!p) return null;
-  if(DB_EXACT_KEYS.has(p)) return true;
-  return ['decisions/','limits/','restore/','commercial/'].some(x=>p.startsWith(x)||x.startsWith(p));
+  if(!p)return null;
+  if(DB_EXACT_KEYS.has(p)||p.startsWith('draft/'))return true;
+  if(['user/','draft/'].some(x=>p.startsWith(x)||x.startsWith(p)))return p.startsWith('draft/')||DB_EXACT_KEYS.has(p);
+  return false;
 }
+
 function tenantIdRequired(){
   const tenant=activeContext()?.tenant;
   if(!tenant?.tenantId) throw new Error('TENANT_CONTEXT_REQUIRED');
@@ -101,6 +100,15 @@ export function configureTenantForRequest(tenant){
   return tenantValue;
 }
 export function currentTenantContext(){ const t=activeContext()?.tenant; return t?{...t}:null; }
+export function databaseTenantScope(){ return scopedTenantId(tenantIdRequired()); }
+export function relationalPaperLedgerEnabled(){ return dataBackend()==='postgres'; }
+export async function ensureLegacyPaperLedger(){ const t=currentTenantContext();if(t?.role==='owner'&&relationalPaperLedgerEnabled())return migrateLegacyPaperLedger(databaseTenantScope());return {skipped:true}; }
+export async function getRelationalTransactions(){ return getPaperTransactions(databaseTenantScope()); }
+export async function saveRelationalTransactions(rows){ return replacePaperTransactions(databaseTenantScope(),rows); }
+export async function getRelationalMarks(){ return getPaperMarks(databaseTenantScope()); }
+export async function saveRelationalMarks(rows){ return replacePaperMarks(databaseTenantScope(),rows); }
+export async function getRelationalOrders(){ return getRelationalPaperOrders(databaseTenantScope()); }
+export async function saveRelationalOrders(rows){ return replaceRelationalPaperOrders(databaseTenantScope(),rows); }
 export function deployScopedPersistence(){
   const explicit=String(getEnv('HADES_STORAGE_SCOPE')||getEnv('KAIROS_STORAGE_SCOPE')||'').toLowerCase();
   if(explicit==='deploy') return true; if(explicit==='site') return false;

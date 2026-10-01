@@ -15,8 +15,8 @@ const chains=documentedFallbackChains();
 assert.deepEqual(chains.chat,['openai','gemini','anthropic']);
 assert.deepEqual(chains.coach_verify,['gemini','anthropic','openai']);
 assert.equal(resolveModelForProvider('openai','chat'),'gpt-5.6-luna');
-assert.equal(resolveModelForProvider('openai','deep'),'gpt-5.6-terra');
-assert.equal(resolveModelForProvider('openai','final_gate'),'gpt-5.6-sol');
+assert.equal(resolveModelForProvider('openai','deep'),'gpt-5.6-luna');
+assert.equal(resolveModelForProvider('openai','final_gate'),'gpt-5.6-terra');
 assert.equal(resolveModelForProvider('gemini','coach_verify'),'gemini-2.5-flash');
 assert.equal(resolveModelForProvider('anthropic','coach_verify'),'claude-haiku-4-5');
 

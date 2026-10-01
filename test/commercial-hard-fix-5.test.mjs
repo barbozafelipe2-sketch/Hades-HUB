@@ -10,6 +10,14 @@ process.env.KAIROS_LEGAL_REVIEW_VERSION='qa-review-v1';
 process.env.KAIROS_LEGAL_REVIEWED_AT=new Date(Date.now()-3600000).toISOString();
 process.env.KAIROS_SUPPORT_EMAIL='support@kairos.example';
 process.env.KAIROS_APP_URL='https://kairos.example';
+process.env.KAIROS_LEGACY_AUTH_ENABLED='false';
+process.env.KAIROS_LICENSED_MARKET_BASE_URL='https://market.example';
+process.env.KAIROS_LICENSED_MARKET_API_KEY='qa-market-key';
+process.env.KAIROS_TENANT_DAILY_USD='10';
+process.env.KAIROS_SITE_DAILY_USD='100';
+process.env.STRIPE_SECRET_KEY='sk_test_kairos';
+process.env.STRIPE_WEBHOOK_SECRET='whsec_kairos';
+process.env.KAIROS_STRIPE_PRO_PRICE_ID='price_kairos';
 
 const good=commercialReleaseGate({identityConfigured:true,legalConfigured:true,billingConfigured:true,signupRequested:true,publicSignupReady:true,billingRequired:true});
 assert.equal(good.ready,true);

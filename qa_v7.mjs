@@ -33,10 +33,10 @@ const {normalizeTransaction,derivePortfolio}=await import('./netlify/lib/portfol
 {
   reset();
   await saveTransactions([normalizeTransaction({type:'DEPOSIT',amount:1000,date:new Date().toISOString().slice(0,10),note:'test cash'})]);
-  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub'}});
+  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub',license_id:'qa-finnhub-license',delay_class:'delayed',point_in_time:false,manual:false}});
   const buy=await executeMarketPaperOrder({symbol:'AAPL',side:'BUY',quantity:2,fees:1});
   assert.equal(buy.order.status,'FILLED'); assert.equal(buy.order.fillPrice,100);
-  let p=derivePortfolio(await getTransactions(),{AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub'}});
+  let p=derivePortfolio(await getTransactions(),{AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub',license_id:'qa-finnhub-license',delay_class:'delayed',point_in_time:false,manual:false}});
   assert.equal(p.positions[0].quantity,2); assert.ok(Math.abs(p.cash-799)<0.001);
   await assert.rejects(()=>executeMarketPaperOrder({symbol:'AAPL',side:'SELL',quantity:3}),/SELL_EXCEEDS_POSITION/);
   await assert.rejects(()=>executeMarketPaperOrder({symbol:'AAPL',side:'BUY',quantity:100}),/INSUFFICIENT_TRACKED_CASH/);
@@ -47,11 +47,11 @@ const {normalizeTransaction,derivePortfolio}=await import('./netlify/lib/portfol
 {
   reset();
   await saveTransactions([normalizeTransaction({type:'DEPOSIT',amount:1000,date:new Date().toISOString().slice(0,10),note:'test cash'})]);
-  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub'}});
+  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub',license_id:'qa-finnhub-license',delay_class:'delayed',point_in_time:false,manual:false}});
   const order=await placePendingPaperOrder({symbol:'AAPL',side:'BUY',orderType:'LIMIT',quantity:1,limitPrice:95});
   assert.equal(order.status,'OPEN');
   let r=await processPendingPaperOrders(); assert.equal(r.fills.length,0);
-  await saveMarks({AAPL:{price:94,asOf:new Date().toISOString(),source:'finnhub'}});
+  await saveMarks({AAPL:{price:94,asOf:new Date().toISOString(),source:'finnhub',license_id:'qa-finnhub-license',delay_class:'delayed',point_in_time:false,manual:false}});
   r=await processPendingPaperOrders(); assert.equal(r.fills.length,1); assert.equal(r.fills[0].fillPrice,94);
   const saved=(await getPaperOrders()).find(x=>x.id===order.id); assert.equal(saved.status,'FILLED');
   assert.equal((await getTransactions()).filter(x=>x.type==='BUY').length,1);
@@ -62,13 +62,13 @@ const {normalizeTransaction,derivePortfolio}=await import('./netlify/lib/portfol
 {
   reset();
   await saveTransactions([normalizeTransaction({type:'DEPOSIT',amount:3000,date:new Date().toISOString().slice(0,10),note:'test cash'})]);
-  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub'}});
+  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub',license_id:'qa-finnhub-license',delay_class:'delayed',point_in_time:false,manual:false}});
   const order=await placePendingPaperOrder({symbol:'AAPL',side:'BUY',orderType:'STOP_LIMIT',quantity:1,stopPrice:105,limitPrice:104});
   let r=await processPendingPaperOrders(); assert.equal(r.fills.length,0);
-  await saveMarks({AAPL:{price:106,asOf:new Date().toISOString(),source:'finnhub'}});
+  await saveMarks({AAPL:{price:106,asOf:new Date().toISOString(),source:'finnhub',license_id:'qa-finnhub-license',delay_class:'delayed',point_in_time:false,manual:false}});
   r=await processPendingPaperOrders(); assert.equal(r.fills.length,0);
   let mid=(await getPaperOrders()).find(x=>x.id===order.id); assert.equal(mid.triggered,true); assert.equal(mid.status,'OPEN');
-  await saveMarks({AAPL:{price:103,asOf:new Date().toISOString(),source:'finnhub'}});
+  await saveMarks({AAPL:{price:103,asOf:new Date().toISOString(),source:'finnhub',license_id:'qa-finnhub-license',delay_class:'delayed',point_in_time:false,manual:false}});
   r=await processPendingPaperOrders(); assert.equal(r.fills.length,1);
   const done=(await getPaperOrders()).find(x=>x.id===order.id); assert.equal(done.status,'FILLED');
   pass('STOP_LIMIT preserves trigger-then-limit semantics');
@@ -82,7 +82,7 @@ const {normalizeTransaction,derivePortfolio}=await import('./netlify/lib/portfol
     normalizeTransaction({type:'DEPOSIT',amount:1000,date:d,note:'cash'}),
     normalizeTransaction({type:'BUY',symbol:'AAPL',quantity:5,unitPrice:100,fees:0,date:d,note:'position'})
   ]);
-  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub'}});
+  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub',license_id:'qa-finnhub-license',delay_class:'delayed',point_in_time:false,manual:false}});
   await placePendingPaperOrder({symbol:'AAPL',side:'SELL',orderType:'LIMIT',quantity:4,limitPrice:120});
   await assert.rejects(()=>placePendingPaperOrder({symbol:'AAPL',side:'SELL',orderType:'LIMIT',quantity:2,limitPrice:125}),/INSUFFICIENT_HOLDINGS_FOR_ORDER/);
   pass('Open SELL orders reserve holdings and prevent double-selling');
@@ -92,7 +92,7 @@ const {normalizeTransaction,derivePortfolio}=await import('./netlify/lib/portfol
 {
   reset();
   await saveTransactions([normalizeTransaction({type:'DEPOSIT',amount:1000,date:new Date().toISOString().slice(0,10),note:'test cash'})]);
-  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub'}});
+  await saveMarks({AAPL:{price:100,asOf:new Date().toISOString(),source:'finnhub',license_id:'qa-finnhub-license',delay_class:'delayed',point_in_time:false,manual:false}});
   const o=await placePendingPaperOrder({symbol:'AAPL',side:'BUY',orderType:'LIMIT',quantity:.1,limitPrice:80});
   const c=await cancelPaperOrder(o.id); assert.equal(c.status,'CANCELLED');
   await assert.rejects(()=>cancelPaperOrder(o.id),/ORDER_NOT_OPEN/);

@@ -6,6 +6,7 @@ const localTenant = globalThis.__KAIROS_DB_TENANT__ ||= new Map();
 const localLocks = globalThis.__KAIROS_DB_LOCKS__ ||= new Map();
 const localAudit = globalThis.__KAIROS_DB_AUDIT__ ||= [];
 const localUsage = globalThis.__KAIROS_DB_USAGE__ ||= new Map();
+const localAIUsage = globalThis.__KAIROS_DB_AI_USAGE__ ||= new Map();
 let cachedModule = null;
 let cachedDb = null;
 
@@ -166,6 +167,98 @@ export async function withDatabaseLock(scope,key,fn){
   }
 }
 
+
+
+export async function migrateLegacyPaperLedger(tenantId){
+  const tid=String(tenantId||'');if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');const db=await database();if(!db)return {skipped:true};
+  const marker='paper-ledger-bootstrap-owner-v1';const prior=await db.sql`SELECT marker FROM kairos_migration_markers WHERE tenant_id=${tid} AND marker=${marker} LIMIT 1`;if(prior?.length)return {alreadyMigrated:true};
+  const keys=['portfolio/transactions','portfolio/marks','broker/orders'];const legacy={};for(const key of keys){const rows=await db.sql`SELECT value FROM kairos_tenant_state WHERE tenant_id=${tid} AND key=${key} LIMIT 1`;legacy[key]=rows?.[0]?.value??null;}
+  const hash=crypto.createHash('sha256').update(JSON.stringify(legacy)).digest('hex');const client=await db.pool.connect();
+  try{await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`legacy-paper:${tid}`]);await client.query('INSERT INTO paper_accounts(id,tenant_id,currency,cash_balance) VALUES($1,$2,$3,0) ON CONFLICT(tenant_id,id) DO NOTHING',[paperAccountId,tid,'USD']);
+    const txs=Array.isArray(legacy['portfolio/transactions'])?legacy['portfolio/transactions']:[];
+    for(const r of txs){const id=String(r.id||crypto.randomUUID()),type=String(r.type||'').toUpperCase(),payload=JSON.stringify({...r,id,legacySource:'kairos_tenant_state:portfolio/transactions'});await client.query(`INSERT INTO paper_transactions(id,tenant_id,account_id,idempotency_key,transaction_type,symbol,quantity,unit_price,amount,payload,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,COALESCE($11::timestamptz,now())) ON CONFLICT DO NOTHING`,[id,tid,paperAccountId,`legacy-json:${id}`,type,r.symbol||null,Number(r.quantity||0),Number(r.unitPrice||0),Number(r.amount||0),payload,r.createdAt||null]);}
+    const marks=legacy['portfolio/marks']&&typeof legacy['portfolio/marks']==='object'?legacy['portfolio/marks']:{};
+    for(const [sym,m] of Object.entries(marks)){if(!(Number(m?.price)>0)||!Number.isFinite(Date.parse(m?.asOf||'')))continue;const manual=!m?.license_id&&!m?.licenseId;await client.query(`INSERT INTO paper_marks(id,tenant_id,account_id,symbol,price,source,asof,exchange,delay_class,license_id,point_in_time,manual) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT DO NOTHING`,[crypto.randomUUID(),tid,paperAccountId,sym,Number(m.price),String(m.source||'manual'),m.asOf,m.exchange||null,m.delay_class||'unknown',m.license_id||m.licenseId||'unverified',m.point_in_time===true,manual]);}
+    const orders=Array.isArray(legacy['broker/orders'])?legacy['broker/orders']:[];for(const o of orders){const id=String(o.id||crypto.randomUUID()),status=String(o.status||'open').toLowerCase()==='open'?'pending':String(o.status||'pending').toLowerCase();if(status==='filled')continue;await client.query(`INSERT INTO paper_orders(id,tenant_id,account_id,idempotency_key,symbol,side,quantity,status,payload,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,COALESCE($10::timestamptz,now()),now()) ON CONFLICT DO NOTHING`,[id,tid,paperAccountId,`legacy-json:${id}`,String(o.symbol||'').toUpperCase(),String(o.side||'BUY').toLowerCase(),Number(o.quantity||0),['pending','cancelled','rejected'].includes(status)?status:'pending',JSON.stringify({...o,id,legacySource:'kairos_tenant_state:broker/orders'}),o.createdAt||null]);}
+    await client.query('INSERT INTO kairos_migration_markers(tenant_id,marker,source_key,source_hash) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,marker) DO NOTHING',[tid,marker,'kairos_tenant_state:bootstrap-owner-paper-json',hash]);await client.query('COMMIT');return {migrated:true,transactionCount:txs.length,markCount:Object.keys(marks).length,orderCount:orders.length,sourceHash:hash};
+  }catch(e){try{await client.query('ROLLBACK');}catch{}throw e;}finally{client.release();}
+}
+const localPaper=globalThis.__KAIROS_DB_PAPER__ ||= new Map();
+const paperAccountId='paper-main';
+function localPaperTenant(tenantId){let row=localPaper.get(tenantId);if(!row){row={transactions:[],marks:{},orders:[]};localPaper.set(tenantId,row);}return row;}
+async function ensurePaperAccount(db,tenantId){await db.sql`INSERT INTO paper_accounts(id,tenant_id,currency,cash_balance) VALUES(${paperAccountId},${tenantId},'USD',0) ON CONFLICT(tenant_id,id) DO NOTHING`;}
+export async function getPaperTransactions(tenantId){
+  const tid=String(tenantId||'');if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');const db=await database();if(!db)return clone(localPaperTenant(tid).transactions);
+  await ensurePaperAccount(db,tid);const rows=await db.sql`SELECT payload FROM paper_transactions WHERE tenant_id=${tid} AND account_id=${paperAccountId} ORDER BY created_at,id`;return (rows||[]).map(r=>r.payload||{});
+}
+export async function replacePaperTransactions(tenantId,transactions=[]){
+  const tid=String(tenantId||'');if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');const rows=Array.isArray(transactions)?transactions:[];const db=await database();if(!db){localPaperTenant(tid).transactions=clone(rows);return clone(rows);}
+  const client=await db.pool.connect();try{
+    await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`paper:${tid}`]);
+    await client.query('INSERT INTO paper_accounts(id,tenant_id,currency,cash_balance) VALUES($1,$2,$3,0) ON CONFLICT(tenant_id,id) DO NOTHING',[paperAccountId,tid,'USD']);
+    const existing=await client.query('SELECT id FROM paper_transactions WHERE tenant_id=$1 AND account_id=$2',[tid,paperAccountId]);const keep=new Set(rows.map(r=>String(r.id)));
+    for(const r of [...rows].sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.createdAt||'').localeCompare(String(b.createdAt||'')))){
+      const id=String(r.id||crypto.randomUUID()),type=String(r.type||'').toUpperCase(),payload=JSON.stringify({...r,id});
+      await client.query(`INSERT INTO paper_transactions(id,tenant_id,account_id,idempotency_key,transaction_type,symbol,quantity,unit_price,amount,source,asof,exchange,delay_class,license_id,point_in_time,payload,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,COALESCE($17::timestamptz,now())) ON CONFLICT(tenant_id,id) DO UPDATE SET transaction_type=EXCLUDED.transaction_type,symbol=EXCLUDED.symbol,quantity=EXCLUDED.quantity,unit_price=EXCLUDED.unit_price,amount=EXCLUDED.amount,source=EXCLUDED.source,asof=EXCLUDED.asof,exchange=EXCLUDED.exchange,delay_class=EXCLUDED.delay_class,license_id=EXCLUDED.license_id,point_in_time=EXCLUDED.point_in_time,payload=EXCLUDED.payload`,[id,tid,paperAccountId,`paper-tx:${id}`,type,r.symbol||null,Number(r.quantity||0),Number(r.unitPrice||0),Number(r.amount||0),r.source||null,r.asof||null,r.exchange||null,r.delay_class||null,r.license_id||null,r.point_in_time===true,payload,r.createdAt||null]);
+    }
+    for(const r of existing.rows)if(!keep.has(r.id))await client.query('DELETE FROM paper_transactions WHERE tenant_id=$1 AND account_id=$2 AND id=$3',[tid,paperAccountId,r.id]);await client.query('COMMIT');return rows;
+  }catch(e){try{await client.query('ROLLBACK');}catch{}throw e;}finally{client.release();}
+}
+export async function getPaperMarks(tenantId){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');if(!db)return clone(localPaperTenant(tid).marks);const rows=await db.sql`SELECT DISTINCT ON(symbol) symbol,price,source,asof,exchange,delay_class,license_id,point_in_time,manual FROM paper_marks WHERE tenant_id=${tid} AND account_id=${paperAccountId} ORDER BY symbol,asof DESC`;return Object.fromEntries((rows||[]).map(r=>[r.symbol,{price:Number(r.price),source:r.source,asOf:new Date(r.asof).toISOString(),exchange:r.exchange,delay_class:r.delay_class,license_id:r.license_id,point_in_time:r.point_in_time===true,manual:r.manual===true}]));}
+export async function replacePaperMarks(tenantId,marks={}){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');if(!db){localPaperTenant(tid).marks=clone(marks);return clone(marks);}await ensurePaperAccount(db,tid);for(const [symbol,m] of Object.entries(marks||{})){if(!m?.source||!m?.license_id)continue;await db.sql`INSERT INTO paper_marks(id,tenant_id,account_id,symbol,price,source,asof,exchange,delay_class,license_id,point_in_time,manual) VALUES(${crypto.randomUUID()},${tid},${paperAccountId},${symbol},${Number(m.price)},${m.source},${m.asOf}::timestamptz,${m.exchange||null},${m.delay_class||'unknown'},${m.license_id},${m.point_in_time===true},${m.manual===true}) ON CONFLICT(tenant_id,account_id,symbol,asof,source) DO NOTHING`; }return marks;}
+export async function getRelationalPaperOrders(tenantId){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');if(!db)return clone(localPaperTenant(tid).orders);const rows=await db.sql`SELECT payload FROM paper_orders WHERE tenant_id=${tid} AND account_id=${paperAccountId} ORDER BY created_at`;return (rows||[]).map(r=>r.payload||{});}
+export async function replaceRelationalPaperOrders(tenantId,orders=[]){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');const rows=Array.isArray(orders)?orders:[];if(!db){localPaperTenant(tid).orders=clone(rows);return clone(rows);}await ensurePaperAccount(db,tid);const ids=new Set(rows.map(r=>String(r.id)));for(const r of rows){const id=String(r.id||crypto.randomUUID()),side=String(r.side||'BUY').toLowerCase(),status=String(r.status||'pending').toLowerCase()==='open'?'pending':String(r.status||'pending').toLowerCase(),payload=JSON.stringify({...r,id});await db.sql`INSERT INTO paper_orders(id,tenant_id,account_id,idempotency_key,symbol,side,quantity,filled_quantity,status,execution_price,source,asof,exchange,delay_class,license_id,point_in_time,payload,created_at,updated_at) VALUES(${id},${tid},${paperAccountId},${`paper-order:${id}`},${String(r.symbol||'').toUpperCase()},${side},${Number(r.quantity||0)},${Number(status==='filled'?r.quantity:0)},${status},${Number(r.fillPrice)||null},${r.marketEvidence?.source||null},${r.marketEvidence?.asof||null},${r.marketEvidence?.exchange||null},${r.marketEvidence?.delay_class||null},${r.marketEvidence?.license_id||null},${r.marketEvidence?.point_in_time===true},${payload}::jsonb,COALESCE(${r.createdAt||null}::timestamptz,now()),now()) ON CONFLICT(tenant_id,id) DO UPDATE SET status=EXCLUDED.status,filled_quantity=EXCLUDED.filled_quantity,execution_price=EXCLUDED.execution_price,payload=EXCLUDED.payload,updated_at=now()`;}if(ids.size)await db.sql`DELETE FROM paper_orders WHERE tenant_id=${tid} AND account_id=${paperAccountId} AND id <> ALL(${[...ids]})`;else await db.sql`DELETE FROM paper_orders WHERE tenant_id=${tid} AND account_id=${paperAccountId}`;return rows;}
+
+export async function saveMarketSnapshots(tenantId,items=[]){
+  const tid=String(tenantId||'');if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');
+  const rows=(items||[]).slice(0,1000);const db=await database();
+  if(!db)return {saved:rows.length,mode:'local_memory'};
+  let saved=0;
+  for(const r of rows){
+    const price=Number(r.value);if(!r.symbol||!Number.isFinite(price)||price<=0||!r.source||!r.asof||!r.delay_class||!r.license_id)continue;
+    const id=crypto.randomUUID();
+    const out=await db.sql`INSERT INTO market_snapshots(id,tenant_id,symbol,value_kind,value,source,asof,exchange,delay_class,license_id,point_in_time) VALUES(${id},${tid},${String(r.symbol).toUpperCase()},${r.value_kind},${price},${r.source},${r.asof}::timestamptz,${r.exchange||null},${r.delay_class},${r.license_id},${r.point_in_time===true}) ON CONFLICT(tenant_id,symbol,value_kind,asof,source) DO NOTHING RETURNING id`;
+    if(out?.length)saved++;
+  }
+  return {saved};
+}
+
+function dailyUsdCap(name){ const n=Number(getEnv(name)); return Number.isFinite(n)&&n>0?n:null; }
+export async function reserveAIUsage({tenantId,provider,model,feature,requestId,inputTokens=0,outputTokens=0,estimatedUsd=0}={}){
+  const tid=String(tenantId||'').slice(0,96),prov=String(provider||'').slice(0,60),mod=String(model||'').slice(0,120),feat=String(feature||'unknown').slice(0,80),rid=String(requestId||'').slice(0,180);
+  const usd=Math.max(0,Number(estimatedUsd)||0),input=Math.max(0,Math.trunc(Number(inputTokens)||0)),output=Math.max(0,Math.trunc(Number(outputTokens)||0));
+  if(!tid||!prov||!mod||!rid) throw new Error('AI_USAGE_INVALID');
+  const tenantCap=dailyUsdCap('KAIROS_TENANT_DAILY_USD'),siteCap=dailyUsdCap('KAIROS_SITE_DAILY_USD');
+  const start=new Date();start.setUTCHours(0,0,0,0);const key=`${tid}:${rid}`;
+  let db;try{db=await database();}catch(e){if(isNetlifyRuntime())throw e;db=null;}
+  if(!db){
+    return withLocalLock('ai-usage-daily',async()=>{
+      if(localAIUsage.has(key)) return {ok:true,idempotent:true};
+      const rows=[...localAIUsage.values()].filter(r=>Date.parse(r.createdAt)>=start.getTime());
+      const tenantUsed=rows.filter(r=>r.tenantId===tid).reduce((n,r)=>n+r.estimatedUsd,0),siteUsed=rows.reduce((n,r)=>n+r.estimatedUsd,0);
+      if((tenantCap!=null&&tenantUsed+usd>tenantCap)||(siteCap!=null&&siteUsed+usd>siteCap)) return {ok:false,reason:'AI_DAILY_USD_CAP',tenantUsed,siteUsed,tenantCap,siteCap};
+      localAIUsage.set(key,{tenantId:tid,provider:prov,model:mod,feature:feat,requestId:rid,inputTokens:input,outputTokens:output,estimatedUsd:usd,createdAt:new Date().toISOString()});
+      return {ok:true,idempotent:false};
+    });
+  }
+  const client=await db.pool.connect();
+  try{
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['kairos:ai-usd-daily']);
+    const prior=await client.query('SELECT id FROM usage_ledger WHERE tenant_id=$1 AND request_id=$2',[tid,rid]);
+    if(prior.rowCount){await client.query('COMMIT');return {ok:true,idempotent:true};}
+    const totals=await client.query(`SELECT COALESCE(SUM(estimated_usd) FILTER (WHERE tenant_id=$1),0) AS tenant_used, COALESCE(SUM(estimated_usd),0) AS site_used FROM usage_ledger WHERE created_at >= date_trunc('day',now())` ,[tid]);
+    const tenantUsed=Number(totals.rows[0]?.tenant_used||0),siteUsed=Number(totals.rows[0]?.site_used||0);
+    if((tenantCap!=null&&tenantUsed+usd>tenantCap)||(siteCap!=null&&siteUsed+usd>siteCap)){await client.query('ROLLBACK');return {ok:false,reason:'AI_DAILY_USD_CAP',tenantUsed,siteUsed,tenantCap,siteCap};}
+    await client.query('INSERT INTO usage_ledger(id,tenant_id,idempotency_key,provider,model,input_tokens,output_tokens,estimated_usd,feature,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[crypto.randomUUID(),tid,rid,prov,mod,input,output,usd,feat,rid]);
+    await client.query('COMMIT');return {ok:true,idempotent:false};
+  }catch(e){try{await client.query('ROLLBACK');}catch{}throw e;}finally{client.release();}
+}
+export async function updateAIUsage({tenantId,requestId,inputTokens,outputTokens,estimatedUsd}={}){
+  const tid=String(tenantId||''),rid=String(requestId||'');const input=Math.max(0,Math.trunc(Number(inputTokens)||0)),output=Math.max(0,Math.trunc(Number(outputTokens)||0)),usd=Math.max(0,Number(estimatedUsd)||0);
+  let db;try{db=await database();}catch(e){if(isNetlifyRuntime())throw e;db=null;}if(!db){const key=`${tid}:${rid}`,row=localAIUsage.get(key);if(row){row.inputTokens=input;row.outputTokens=output;row.estimatedUsd=usd;}return !!row;}
+  const rows=await db.sql`UPDATE usage_ledger SET input_tokens=${input},output_tokens=${output},estimated_usd=${usd} WHERE tenant_id=${tid} AND request_id=${rid} RETURNING id`;return !!rows?.length;
+}
 
 function safeAuditDetails(input={}){
   const allow=['role','plan','billingStatus','feature','units','period','reason','action','source','provider','status','result','subscriptionStatus','customerIdSuffix','subscriptionIdSuffix'];

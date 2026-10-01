@@ -60,6 +60,7 @@ export function normalizeTransaction(input={}, opts={}){
     amount: num(input.amount),
     fees: num(input.fees),
     taxes: num(input.taxes),
+    source:input.source||input.provider||null,asof:input.asof||input.asOf||null,exchange:input.exchange||null,delay_class:input.delay_class||input.delayClass||null,license_id:input.license_id||input.licenseId||null,point_in_time:input.point_in_time===true||input.pointInTime===true,
     note: String(input.note||'').slice(0,500),
   };
   if(POSITION_TYPES.has(type) && !tx.symbol) throw new Error('SYMBOL_REQUIRED');

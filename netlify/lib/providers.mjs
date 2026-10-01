@@ -1,18 +1,21 @@
 import { documentedFallbackChains, anyAIConfigured, modelRegistry, providerConfigured, gatewayConfigured } from './llm.mjs';
 import { getEnv, hasEnv } from './env.mjs';
+import { licensedMarketConfigured } from './market-truth.mjs';
 
 export function providerStatus(){
   const supabase=hasEnv('SUPABASE_URL')&&hasEnv('SUPABASE_ANON_KEY');
   const twelve=hasEnv('TWELVE_DATA_API_KEY');
   const finnhub=hasEnv('FINNHUB_API_KEY');
   const genericMarket=hasEnv('MARKET_DATA_API_KEY')&&hasEnv('MARKET_DATA_BASE_URL')&&hasEnv('MARKET_DATA_PROVIDER');
-  const marketConfigured=twelve||finnhub||genericMarket;
+  const licensedPrimary=licensedMarketConfigured();
+  const marketConfigured=licensedPrimary||twelve||finnhub||genericMarket;
   const aiOk=anyAIConfigured();
   const gateway=gatewayConfigured();
   const chains=documentedFallbackChains();
   const reg=modelRegistry();
   let marketProvider=null;
-  if(twelve&&finnhub) marketProvider='twelve_data+finnhub_sticky';
+  if(licensedPrimary) marketProvider='licensed_market_feed';
+  else if(twelve&&finnhub) marketProvider='twelve_data+finnhub_sticky';
   else if(twelve) marketProvider='twelve_data';
   else if(finnhub) marketProvider='finnhub';
   else if(genericMarket) marketProvider=getEnv('MARKET_DATA_PROVIDER');
@@ -23,11 +26,11 @@ export function providerStatus(){
     gemini:{configured:providerConfigured('gemini'),verified:false,role:'scenario_macro_and_risk_review',models:reg.gemini},
     supabase:{configured:supabase,serviceRoleConfigured:hasEnv('SUPABASE_SERVICE_ROLE_KEY'),implemented:false,role:'reserved_customer_auth_database_password_recovery'},
     market:{
-      configured:marketConfigured,verified:false,provider:marketProvider,
-      twelve,finnhub,shard:twelve&&finnhub?'sticky_hash_mod2':null,
+      configured:marketConfigured,primaryConfigured:licensedPrimary,verified:false,provider:marketProvider,
+      twelve,finnhub,shard:null,
       role:'licensed_market_feed_ohlc_only',fallback:null,
       dataClass:marketConfigured?'licensed_feed_configured_unverified':'unavailable',
-      note:'Chart OHLC and price authority come from Twelve Data/Finnhub only. LLMs never manufacture chart prices.'
+      note:'The owner licensed API is primary. Twelve Data, then Finnhub, are sticky per-symbol fallbacks. LLMs never manufacture market numbers.'
     },
     finalGate:{
       configured:aiOk,preferred:'openai',chain:chains.final_gate,researchChain:chains.research,criticChain:chains.critic,riskChain:chains.risk,chatChain:chains.chat,

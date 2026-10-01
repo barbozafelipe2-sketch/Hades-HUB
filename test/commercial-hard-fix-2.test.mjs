@@ -90,6 +90,12 @@ const proStatus=await commercial.commercialStatus({tenantId:proTenant.id,userId:
 assert.equal(proStatus.access.allowed,true);
 assert.equal(proStatus.usage.limit,20);
 
+const beforeUnsigned=await commercial.getBillingState();
+const unsignedBody=JSON.stringify({id:'evt_unsigned',type:'customer.subscription.updated',created:Math.floor(Date.now()/1000),data:{object:{id:'sub_webhook_1',customer:'cus_webhook_1',status:'canceled',metadata:{tenant_id:proTenant.id}}}});
+const unsignedResponse=await webhook(new Request('https://local/.netlify/functions/billing-webhook',{method:'POST',headers:{'content-type':'application/json'},body:unsignedBody}),{requestId:'req-unsigned'});
+store.configurePersistenceForRequest({}); store.configureTenantForRequest({tenantId:proTenant.id,userId:'u_pro',role:'owner'});
+assert.equal(unsignedResponse.status,400);assert.deepEqual(await commercial.getBillingState(),beforeUnsigned,'unsigned Stripe webhook cannot change the entitlement');
+
 const ts=Math.floor(Date.now()/1000);
 const raw=JSON.stringify({id:'evt_kairos_hf2_1',type:'customer.subscription.updated',created:ts,data:{object:{id:'sub_webhook_1',customer:'cus_webhook_1',status:'active',current_period_end:Math.floor(Date.now()/1000)+86400,metadata:{tenant_id:proTenant.id}}}});
 const sig=crypto.createHmac('sha256',process.env.STRIPE_WEBHOOK_SECRET).update(`${ts}.${raw}`).digest('hex');

@@ -2,6 +2,9 @@ import { callOpenAI, parseJSONText, normalizedOpenAIKey } from './openai.mjs';
 import { callAnthropic, anthropicConfigured } from './anthropic.mjs';
 import { callGemini, geminiConfigured } from './gemini.mjs';
 import { getEnv, cleanSecret, aiGatewayDetected } from './env.mjs';
+import crypto from 'node:crypto';
+import { reserveAIUsage, updateAIUsage } from './database.mjs';
+import { currentTenantContext } from './store.mjs';
 
 const clean=(v)=>String(v||'').trim().replace(/^['"]|['"]$/g,'').trim();
 const PROVIDER_FETCH_TIMEOUT_MS=Math.max(7000,Math.min(55000,Number(getEnv('HADES_PROVIDER_TIMEOUT_MS','18000'))));
@@ -45,9 +48,12 @@ export const ROLE_PROVIDER_CHAINS=Object.freeze({
   decision_portfolio_attack:Object.freeze(['anthropic','gemini','openai']),
   crown:Object.freeze(['openai','anthropic','gemini']),
   adjudicator:Object.freeze(['openai','anthropic','gemini']),
-  final_gate:Object.freeze(['openai','anthropic','gemini'])
+  final_gate:Object.freeze(['openai','anthropic','gemini']),
+  learning_lab:Object.freeze(['openai','anthropic','gemini'])
 });
 export const VALID_AI_ROLES=Object.freeze(Object.keys(ROLE_PROVIDER_CHAINS));
+const TERRA_ROLES=new Set(['learning_lab','critic','risk','scenario','suitability','crown','adjudicator','final_gate',...VALID_AI_ROLES.filter(r=>r.startsWith('decision_'))]);
+const SOL_ROLES=new Set(['crown','adjudicator','final_gate']);
 
 const MODEL_POLICY=Object.freeze({
   openai:Object.freeze({
@@ -93,7 +99,7 @@ export function outputTokenBudget(role='primary'){
   const r=String(role||'primary');
   if(r==='chat'||r==='coach'||r==='coach_verify') return 900;
   if(r==='market_research') return 1100;
-  if(r==='deep'||r==='research'||r==='evidence') return 1800;
+  if(r==='deep'||r==='research'||r==='evidence'||r==='learning_lab') return 1800;
   if(r==='crown'||r==='adjudicator'||r==='final_gate') return 2600;
   if(r.startsWith('decision_')) return 1700;
   return 1800;
@@ -156,8 +162,15 @@ export function resolveModelForProvider(provider,role='primary',override){
   const p=String(provider||'').toLowerCase();
   const reg=modelRegistry()[p];
   if(!reg) return undefined;
+  const r=String(role||'primary');
+  if(p==='openai'){
+    const selected=(override&&modelBelongsToProvider(override,p)?clean(override):envOverride(p,r)||reg[r]||reg.default);
+    if(/sol/i.test(selected))return SOL_ROLES.has(r)&&String(getEnv('KAIROS_OWNER_ENABLE_SOL','false')).toLowerCase()==='true'?OPENAI_FINAL_MODEL:(TERRA_ROLES.has(r)?OPENAI_DEEP_MODEL:OPENAI_DEFAULT_MODEL);
+    if(/terra/i.test(selected)&&!TERRA_ROLES.has(r))return OPENAI_DEFAULT_MODEL;
+    return selected;
+  }
   if(override && modelBelongsToProvider(override,p)) return clean(override);
-  return reg[String(role||'primary')]||reg.default;
+  return reg[r]||reg.default;
 }
 
 /** Compatibility helper retained for old diagnostics/tests. */
@@ -184,7 +197,7 @@ export function modelCandidatesForProvider(provider,role='primary',preferred){
   // downgrading Sol -> Terra/Luna or Sonnet -> Haiku / Pro -> Flash.
   if(['crown','adjudicator','final_gate'].includes(r)) return list;
   if(p==='openai'){
-    for(const m of openAIModelCandidates(resolveModelForProvider(p,r))) push(m);
+    return list;
   }else if(p==='anthropic'){
     push(ANTHROPIC_REASONING_MODEL); push(ANTHROPIC_FAST_MODEL);
   }else if(p==='gemini'){
@@ -219,24 +232,43 @@ function hopMs(deadline,base,leftProviders){
   return Math.max(1200,Math.min(base,fair));
 }
 
+function estimatedRate(model){
+  const m=String(model||'').toLowerCase();
+  if(m.includes('luna')||m.includes('haiku')||m.includes('flash')) return {input:0.0000005,output:0.000002};
+  if(m.includes('terra')||m.includes('sonnet')||m.includes('pro')) return {input:0.000003,output:0.000015};
+  if(m.includes('sol')) return {input:0.00001,output:0.00003};
+  return {input:0.000004,output:0.000012};
+}
+async function trackedProviderCall(provider,chosen,{prompt,role,reasoning,web,timeoutMs,jsonMode=false}){
+  const tenantId=currentTenantContext()?.tenantId||'internal_site';
+  const requestId=crypto.randomUUID();
+  const inputTokens=Math.ceil(String(prompt||'').length/4),outputTokens=outputTokenBudget(role),rate=estimatedRate(chosen);
+  const estimatedUsd=inputTokens*rate.input+outputTokens*rate.output;
+  const reservation=await reserveAIUsage({tenantId,provider,model:chosen,feature:role,requestId,inputTokens,outputTokens,estimatedUsd});
+  if(!reservation.ok) throw new Error('AI_DAILY_USD_CAP');
+  let result;
+  if(provider==='openai') result=await callOpenAI({input:prompt,model:chosen,reasoning,web,jsonMode,timeoutMs,maxOutputTokens:outputTokenBudget(role)});
+  else if(provider==='anthropic') result=await callAnthropic({input:prompt,model:chosen,timeoutMs,maxTokens:outputTokenBudget(role)});
+  else if(provider==='gemini') result=await callGemini({input:prompt,model:chosen,timeoutMs,jsonMode,maxTokens:outputTokenBudget(role)});
+  else throw new Error(`UNKNOWN_PROVIDER:${provider}`);
+  const actualInput=Math.ceil(String(prompt||'').length/4),actualOutput=Math.ceil(String(result.text||'').length/4);
+  await updateAIUsage({tenantId,requestId,inputTokens:actualInput,outputTokens:actualOutput,estimatedUsd:actualInput*rate.input+actualOutput*rate.output});
+  return result;
+}
+
 async function callProviderText(provider,{prompt,role,model,reasoning,web,timeoutMs}){
   const candidates=modelCandidatesForProvider(provider,role,model);
   const modelAttempts=[];
   let lastErr=null;
   for(const chosen of candidates){
     try{
-      if(provider==='openai'){
-        const r=await callOpenAI({input:prompt,model:chosen,reasoning,web,jsonMode:false,timeoutMs,maxOutputTokens:outputTokenBudget(role)});
-        return {...r,provider:'openai',modelAttempts};
-      }
       // Non-OpenAI fallbacks do not receive an external web-search tool in this app.
       // They must reason only from the frozen/contextual evidence in the prompt.
-      const safePrompt=web
+      const safePrompt=provider!=='openai'&&web
         ? `${prompt}\n\nFALLBACK RULE: live web retrieval is unavailable on this provider call. Do not invent current facts. Use only the supplied KAIROS context/evidence and clearly state when freshness cannot be verified.`
         : prompt;
-      if(provider==='anthropic') return {...await callAnthropic({input:safePrompt,model:chosen,timeoutMs,maxTokens:outputTokenBudget(role)}),provider:'anthropic',modelAttempts};
-      if(provider==='gemini') return {...await callGemini({input:safePrompt,model:chosen,timeoutMs,jsonMode:false,maxTokens:outputTokenBudget(role)}),provider:'gemini',modelAttempts};
-      throw new Error(`UNKNOWN_PROVIDER:${provider}`);
+      const r=await trackedProviderCall(provider,chosen,{prompt:safePrompt,role,reasoning,web:provider==='openai'&&web,timeoutMs,jsonMode:false});
+      return {...r,provider,modelAttempts};
     }catch(e){
       lastErr=e;
       const msg=String(e?.message||e);
@@ -262,11 +294,8 @@ async function callProviderJSON(provider,{prompt,role,model,reasoning,web,timeou
   let lastErr=null;
   for(const chosen of candidates){
     try{
-      let r;
-      if(provider==='openai') r={...await callOpenAI({input:prompt,model:chosen,reasoning,web,jsonMode:web!==true,timeoutMs,maxOutputTokens:outputTokenBudget(role)}),provider:'openai'};
-      else if(provider==='anthropic') r={...await callAnthropic({input:web?`${prompt}\n\nFALLBACK RULE: no live web tool is available on this provider call; do not invent current facts.`:prompt,model:chosen,timeoutMs,maxTokens:outputTokenBudget(role)}),provider:'anthropic'};
-      else if(provider==='gemini') r={...await callGemini({input:web?`${prompt}\n\nFALLBACK RULE: no live web tool is available on this provider call; do not invent current facts.`:prompt,model:chosen,timeoutMs,jsonMode:true,maxTokens:outputTokenBudget(role)}),provider:'gemini'};
-      else throw new Error(`UNKNOWN_PROVIDER:${provider}`);
+      const safePrompt=provider!=='openai'&&web?`${prompt}\n\nFALLBACK RULE: no live web tool is available on this provider call; do not invent current facts.`:prompt;
+      const r={...await trackedProviderCall(provider,chosen,{prompt:safePrompt,role,reasoning,web:provider==='openai'&&web,timeoutMs,jsonMode:provider==='openai'?web!==true:true}),provider};
       return {...r,data:parseJSONText(r.text),modelAttempts};
     }catch(e){
       lastErr=e;
@@ -301,6 +330,7 @@ export async function callTextWithFailover({role='chat',prompt,reasoning='low',w
       return {text:r.text,model:r.model||resolveModelForProvider(provider,role,model),provider,responseId:r.id||null,citations:r.citations||[],errors,providerAttempts:errors,modelAttempts:r.modelAttempts||[]};
     }catch(e){
       lastErr=e; const msg=String(e?.message||e);
+      if(msg==='AI_DAILY_USD_CAP') return {text:'AI is temporarily unavailable because this workspace reached its daily cost limit. Try again after the limit resets.',model:'deterministic',provider:'deterministic',responseId:null,citations:[],errors:[...errors,{provider,error:msg}],providerAttempts:[...errors,{provider,error:msg}],modelAttempts:[]};
       errors.push({provider,model:resolveModelForProvider(provider,role,model),error:msg.slice(0,260)});
       if(!retryable(e)) throw e;
     }
@@ -325,6 +355,7 @@ export async function callJSONWithFailover({role='primary',prompt,model,reasonin
       return {data:r.data,text:r.text,model:r.model||resolveModelForProvider(provider,role,model),provider,responseId:r.id||null,citations:r.citations||[],failoverErrors,providerAttempts:failoverErrors,modelAttempts:r.modelAttempts||[]};
     }catch(e){
       lastErr=e; const msg=String(e?.message||e);
+      if(msg==='AI_DAILY_USD_CAP') return {data:{status:'UNAVAILABLE',decision:'ABSTAIN',audit_status:'BLOCKED',reason:'AI_DAILY_USD_CAP',unknowns:['Daily AI cost limit reached.']},text:'Daily AI cost limit reached.',model:'deterministic',provider:'deterministic',responseId:null,citations:[],failoverErrors:[...failoverErrors,{provider,error:msg}],providerAttempts:[...failoverErrors,{provider,error:msg}],modelAttempts:[]};
       failoverErrors.push({provider,model:resolveModelForProvider(provider,role,model),error:msg.slice(0,260)});
       if(!retryable(e)) throw e;
     }

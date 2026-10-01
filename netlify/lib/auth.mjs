@@ -28,7 +28,7 @@ function tenantKey(id){return `auth/tenants/${String(id)}`}
 function loginKey(identifier){return `auth/login/${digest(normalizeIdentifier(identifier))}`}
 function identityKey(id){return `auth/identity/${String(id).replace(/[^A-Za-z0-9._:-]/g,'_').slice(0,160)}`}
 function pendingSignupKey(email){return `auth/pending-signups/${digest(cleanEmail(email))}`}
-function legacyAuthEnabled(){ return String(getEnv('KAIROS_LEGACY_AUTH_ENABLED','true')).toLowerCase()!=='false'; }
+function legacyAuthEnabled(){ return String(getEnv('KAIROS_LEGACY_AUTH_ENABLED','false')).toLowerCase()==='true'; }
 function cleanUsername(value){
   const s=String(value||'').trim();
   if(s.length<3) throw new Error('USERNAME_TOO_SHORT');

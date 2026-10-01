@@ -9,7 +9,7 @@ const llm=await import('../netlify/lib/llm.mjs');
 const {deriveDecisionConviction}=await import('../netlify/lib/decision-confidence.mjs');
 
 // Final Decision Review preserves capability tier within a provider.
-assert.deepEqual(llm.modelCandidatesForProvider('openai','final_gate'),['gpt-5.6-sol']);
+process.env.KAIROS_OWNER_ENABLE_SOL='true';assert.deepEqual(llm.modelCandidatesForProvider('openai','final_gate'),['gpt-5.6-sol']);delete process.env.KAIROS_OWNER_ENABLE_SOL;
 assert.deepEqual(llm.modelCandidatesForProvider('anthropic','final_gate'),['claude-sonnet-5']);
 assert.deepEqual(llm.modelCandidatesForProvider('gemini','final_gate'),['gemini-2.5-pro']);
 assert.equal(llm.outputTokenBudget('coach'),900);

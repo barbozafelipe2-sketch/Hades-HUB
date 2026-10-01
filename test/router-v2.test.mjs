@@ -32,8 +32,8 @@ function clean(v){ return String(v||'').trim(); }
   assert.equal(modelBelongsToProvider('claude-sonnet-5','openai'),false);
   assert.equal(modelBelongsToProvider('gemini-2.5-pro','anthropic'),false);
   assert.equal(resolveModelForProvider('openai','chat'),'gpt-5.6-luna');
-  assert.equal(resolveModelForProvider('openai','primary'),'gpt-5.6-terra');
-  assert.equal(resolveModelForProvider('openai','final_gate'),'gpt-5.6-sol');
+  assert.equal(resolveModelForProvider('openai','primary'),'gpt-5.6-luna');
+  assert.equal(resolveModelForProvider('openai','final_gate'),'gpt-5.6-terra');
   assert.equal(resolveModelForProvider('anthropic','critic'),'claude-sonnet-5');
   assert.equal(resolveModelForProvider('gemini','risk'),'gemini-2.5-pro');
   assert.ok(openAIModelCandidates('gpt-5.6-terra').includes(OPENAI_DEFAULT_MODEL));
@@ -204,8 +204,8 @@ function clean(v){ return String(v||'').trim(); }
   assert.ok(oai.includes('OPENAI_MODEL_NOT_FOUND'));
   const prevO=process.env.OPENAI_MODEL;
   delete process.env.OPENAI_MODEL;
-  assert.equal(resolveModelForProvider('openai','primary'),'gpt-5.6-terra');
-  assert.equal(resolveModelForProvider('openai','final_gate'),'gpt-5.6-sol');
+  assert.equal(resolveModelForProvider('openai','primary'),'gpt-5.6-luna');
+  assert.equal(resolveModelForProvider('openai','final_gate'),'gpt-5.6-terra');
   assert.equal(resolveModelForProvider('anthropic','primary'),'claude-sonnet-5');
   assert.equal(resolveModelForProvider('gemini','risk'),'gemini-2.5-pro');
   if(prevO!=null) process.env.OPENAI_MODEL=prevO; else delete process.env.OPENAI_MODEL;

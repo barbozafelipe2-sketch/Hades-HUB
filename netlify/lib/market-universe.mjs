@@ -134,9 +134,9 @@ export async function buildDynamicAssetView(def,{persistMark=true}={}){
   if(persistMark){
     await withKeyLock('portfolio-ledger',async()=>{
       const marks=await getMarks();
-      marks[def.symbol]={price:q.price,source:q.provider||'market_quote',asOf:q.asOf||new Date().toISOString(),confidence:q.stale?'moderate':'high'};
+      marks[def.symbol]={price:q.price,source:q.source||q.provider||'market_quote',asOf:q.asof||q.asOf||new Date().toISOString(),exchange:q.exchange||null,delay_class:q.delay_class||'unknown',license_id:q.license_id||'unverified',point_in_time:q.point_in_time===true,manual:false,confidence:q.stale?'moderate':'high'};
       await saveMarks(marks);
     });
   }
-  return {...def,current:{date:d,price:q.price,asOf:q.asOf,source:q.provider||null,confidence:q.stale?'moderate':'high'},series:merged,periodReturn,dayChange:Number.isFinite(Number(q.percentChange))?Number(q.percentChange)/100:null,historyReady:merged.length>=2,seriesSource:seriesResult.provider||'quote_only',researchMeta:{grade:'licensed_market_data',provider:seriesResult.provider||q.provider||null,generatedAt:new Date().toISOString(),disclaimer:'Crypto price/history supplied by licensed market-data providers; coverage depends on provider entitlement.'}};
+  return {...def,current:{date:d,price:q.price,asOf:q.asof||q.asOf,source:q.source||q.provider||null,exchange:q.exchange||null,delay_class:q.delay_class||'unknown',license_id:q.license_id||null,point_in_time:q.point_in_time===true,confidence:q.stale?'moderate':'high'},series:merged,periodReturn,dayChange:Number.isFinite(Number(q.percentChange))?Number(q.percentChange)/100:null,historyReady:merged.length>=2,seriesSource:seriesResult.provider||'quote_only',researchMeta:{grade:'licensed_market_data',provider:seriesResult.provider||q.provider||null,generatedAt:new Date().toISOString(),disclaimer:'Crypto price/history supplied by licensed market-data providers; coverage depends on provider entitlement.'}};
 }

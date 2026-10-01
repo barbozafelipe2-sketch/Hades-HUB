@@ -1,4 +1,6 @@
 import { getEnv } from './env.mjs';
+import { licensedMarketConfigured } from './market-truth.mjs';
+import { stripeBillingConfig } from './stripe-billing.mjs';
 
 function flag(name,fallback='false'){ return String(getEnv(name,fallback)).trim().toLowerCase()==='true'; }
 function validEmail(value){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value||'').trim()); }
@@ -25,11 +27,18 @@ export function commercialReleaseGate({
   const legalReviewedAt=reviewedAt(getEnv('KAIROS_LEGAL_REVIEWED_AT'));
   const supportEmail=String(getEnv('KAIROS_SUPPORT_EMAIL')||'').trim().toLowerCase();
   const appUrl=String(getEnv('KAIROS_APP_URL')||'').trim();
+  const legacyAuthOff=String(getEnv('KAIROS_LEGACY_AUTH_ENABLED','false')).trim().toLowerCase()==='false';
+  const dailyUsdCapsSet=Number(getEnv('KAIROS_TENANT_DAILY_USD'))>0&&Number(getEnv('KAIROS_SITE_DAILY_USD'))>0;
+  const stripeWebhookOk=stripeBillingConfig().webhookConfigured===true;
 
   const checks=[
     {id:'identity_configured',ok:identityConfigured===true},
     {id:'legal_documents_configured',ok:legalConfigured===true},
     {id:'billing_configured',ok:billingRequired!==true||billingConfigured===true},
+    {id:'licensed_feed_ok',ok:licensedMarketConfigured()},
+    {id:'legacy_auth_off',ok:legacyAuthOff},
+    {id:'stripe_webhook_ok',ok:stripeWebhookOk},
+    {id:'daily_usd_cap_set',ok:dailyUsdCapsSet},
     {id:'canonical_https_app_url',ok:validHttps(appUrl)},
     {id:'support_email_configured',ok:validEmail(supportEmail)},
     {id:'legal_review_versioned',ok:!!legalReviewVersion},
@@ -52,6 +61,10 @@ export function commercialReleaseGate({
     legalReviewedAt,
     supportEmailConfigured:validEmail(supportEmail),
     appUrlConfigured:validHttps(appUrl),
+    licensedFeedConfigured:licensedMarketConfigured(),
+    legacyAuthOff,
+    stripeWebhookOk,
+    dailyUsdCapsSet,
     identityConfigured:identityConfigured===true,
     legalConfigured:legalConfigured===true,
     billingRequired:billingRequired===true,

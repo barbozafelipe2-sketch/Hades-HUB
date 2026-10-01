@@ -17,7 +17,11 @@ export default async (req,context)=>{
     {id:'postgres_transactional_store',ok:persistence.transactionalProvider==='netlify_database'},
     {id:'persistent_artifact_store',ok:persistence.persistent===true},
     {id:'ai_gateway_configured',ok:providers?.aiGateway?.configured===true},
-    {id:'licensed_market_feed_configured',ok:providers?.market?.configured===true},
+    {id:'licensed_market_feed_configured',ok:providers?.market?.primaryConfigured===true},
+    {id:'legacy_auth_off',ok:release.legacyAuthOff===true},
+    {id:'stripe_webhook_ok',ok:billing.webhookConfigured===true},
+    {id:'daily_usd_cap_set',ok:release.dailyUsdCapsSet===true},
+    {id:'preview_smoke_flag',ok:release.previewSmokeApproved===true},
     {id:'security_configuration',ok:security.pass===true},
     {id:'billing_runtime',ok:release.billingRequired!==true||billing.configured===true}
   ];
@@ -25,7 +29,7 @@ export default async (req,context)=>{
   return json({
     ready:blockers.length===0,
     release,
-    runtime:{persistence,aiGateway:providers?.aiGateway?.configured===true,marketConfigured:providers?.market?.configured===true,securityPass:security.pass===true,billingConfigured:billing.configured===true},
+    runtime:{persistence,aiGateway:providers?.aiGateway?.configured===true,marketConfigured:providers?.market?.configured===true,licensedFeedOk:providers?.market?.primaryConfigured===true,legacyAuthOff:release.legacyAuthOff===true,stripeWebhookOk:billing.webhookConfigured===true,dailyUsdCapSet:release.dailyUsdCapsSet===true,previewSmoke:release.previewSmokeApproved===true,securityPass:security.pass===true,billingConfigured:billing.configured===true},
     checks,
     blockers:[...new Set(blockers)],
     note:'Technical release gate only. A green result does not replace securities, privacy, tax, data-licensing, or other professional review required for the intended launch.'
