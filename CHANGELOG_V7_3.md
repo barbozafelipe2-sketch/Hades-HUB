@@ -59,3 +59,5 @@
 - Commercial email signup remains pending until Identity confirms the address; confirmation provisions the preallocated tenant/user IDs.
 - GitHub CI now runs on both `main` and `kairos-commercial-hardening` during the staged commercial hardening sequence.
 - GitHub CI no longer fakes a Netlify runtime for distributed Blob-lock tests; it verifies the conditional-write protocol structurally and leaves runtime execution to Deploy Preview.
+
+- Final-fix preview isolation coverage now validates deploy/site routing without performing Netlify Blob I/O inside GitHub Actions; real Blob isolation remains a Deploy Preview integration gate.
