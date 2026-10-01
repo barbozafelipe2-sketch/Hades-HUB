@@ -174,11 +174,13 @@ async function bootstrapCommercialAuth(){
   return await withSystemKeyLock('commercial-auth-bootstrap',async()=>{
     const ids=await getSystemJSON(USER_INDEX_KEY,[]);
     if(Array.isArray(ids)&&ids.length){
-      const first=await getUserRecord(ids[0]);
-      if(first){
+      const users=(await Promise.all(ids.map(id=>getUserRecord(id)))).filter(Boolean);
+      const owner=users.find(user=>user.status==='active'&&user.role==='owner')||null;
+      const firstActive=owner||users.find(user=>user.status==='active')||users[0]||null;
+      if(firstActive){
         const marker=await getSystemJSON(LEGACY_MIGRATION_KEY,null);
-        if(marker?.status!=='complete') await migrateLegacyTenantData(first.tenantId);
-        return first;
+        if(marker?.status!=='complete'&&owner) await migrateLegacyTenantData(owner.tenantId);
+        return firstActive;
       }
     }
     const legacy=await getLegacyGlobalJSON('auth/credentials',null).catch(()=>null);

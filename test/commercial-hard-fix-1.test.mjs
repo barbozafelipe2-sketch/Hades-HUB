@@ -52,6 +52,25 @@ delete process.env.KAIROS_DATABASE_NAMESPACE;
 store.configurePersistenceForRequest({});
 
 
+// Legacy root state must never migrate into a non-owner just because that user is first in the index.
+process.env.KAIROS_DATABASE_NAMESPACE='owner_selection_guard';
+store.configurePersistenceForRequest({});
+await store.setSystemJSON('auth/users/index',['u_member_seed','u_owner_seed']);
+await store.setSystemJSON('auth/users/u_member_seed',{id:'u_member_seed',tenantId:'tenant_member_seed',username:'member-seed',email:'member-seed@example.com',role:'member',status:'active',credentialVersion:1});
+await store.setSystemJSON('auth/users/u_owner_seed',{id:'u_owner_seed',tenantId:'tenant_owner_seed',username:'owner-seed',email:'owner-seed@example.com',role:'owner',status:'active',credentialVersion:1});
+await store.setSystemJSON('auth/tenants/tenant_member_seed',{id:'tenant_member_seed',name:'Member Seed',status:'active',role:'member',ownerUserId:null});
+await store.setSystemJSON('auth/tenants/tenant_owner_seed',{id:'tenant_owner_seed',name:'Owner Seed',status:'active',ownerUserId:'u_owner_seed'});
+const selectedOwner=await auth.ensureAuth();
+assert.equal(selectedOwner?.id,'u_owner_seed','bootstrap must prefer an active owner over the first indexed member');
+store.configureTenantForRequest({tenantId:'tenant_member_seed',userId:'u_member_seed',role:'member'});
+assert.equal(await store.getJSON('user/profile',null),null,'legacy owner state must never migrate into a member tenant');
+store.configureTenantForRequest({tenantId:'tenant_owner_seed',userId:'u_owner_seed',role:'owner'});
+assert.equal((await store.getJSON('user/profile',null))?.displayName,'Legacy Owner','legacy owner state must migrate into the active owner tenant');
+assert.equal((await store.getSystemJSON('migrations/legacy-tenant-v1',null))?.tenantId,'tenant_owner_seed');
+delete process.env.KAIROS_DATABASE_NAMESPACE;
+store.configurePersistenceForRequest({});
+store.configureTenantForRequest(owner);
+
 const legacyToken=await auth.createSessionToken(owner);
 const legacyReq=new Request('https://local/.netlify/functions/auth-session',{headers:{cookie:`kairos_session=${legacyToken}`}});
 const legacySession=await auth.requireSession(legacyReq);
