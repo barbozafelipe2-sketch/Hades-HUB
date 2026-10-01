@@ -88,3 +88,15 @@ These are **operational cost units**, not customer-visible token balances and no
 ### Still required before public paid launch
 
 **Hard Fix 3/3 remains mandatory:** compliance/product-mode boundaries, auditable paper track record vs SPY, claims/marketing substantiation, deletion/privacy lifecycle, landing/onboarding/PWA launch gates, production legal-review checklist and final release controls.
+
+## Hard Fix 3/3 — auditable paper evidence
+
+Implemented in this stage:
+
+- Deterministic Track Record Ledger from stored snapshots and point-in-time decision outcome checkpoints.
+- Paper portfolio return compared with recorded SPY over the same evidence window; the UI calls the difference relative return, never alpha.
+- Decision scorecards at 1/7/30/90/365 days with non-point-in-time observations excluded.
+- SHA-256 evidence export for change detection. This is intentionally labeled as not an external audit or third-party attestation.
+- Evidence remains BUILDING until at least 30 complete snapshots and 10 matured actionable decisions exist; this label is descriptive and not a statistical validation claim.
+
+Still required before public paid launch: deletion/privacy lifecycle, legal/claims review, onboarding/landing release gates, production smoke tests and final launch controls.

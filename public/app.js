@@ -180,6 +180,17 @@ async function checkSession(){
   }catch{ showLogin(); }
 }
 
+async function exportTrackRecord(){
+  try{
+    const r=await api('track-record',{method:'GET',timeoutMs:20000});
+    const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url; a.download=`kairos-track-record-${String(r.period?.endDate||new Date().toISOString().slice(0,10))}.json`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+    toast('Track record evidence exported.');
+  }catch(e){ toast(e.message||'Could not export track record.'); }
+}
+
 async function loadState(){
   const prevHealth=state?._providerHealthSummary;
   state=await api('state');
@@ -851,19 +862,24 @@ function renderInvestmentMarkets(){
   <div class="broker-market-grid">${marketUniverse.map(universeCard).join('')}</div></section>`;
 }
 function renderPerformanceMirror(){
-  const pm=state.performanceMirror||{}, u=pm.user||{}, a=pm.ai||{}, b=pm.benchmark||{};
+  const pm=state.performanceMirror||{}, u=pm.user||{}, a=pm.ai||{}, b=pm.benchmark||{}, tr=state.trackRecord||{};
   const uv=u.totalReturn, av=a.totalReturn, bv=b.totalReturn;
   const uSeries=(u.series||[]).map(x=>Number(x.value)).filter(Number.isFinite), aSeries=(a.series||[]).map(x=>Number(x.value)).filter(Number.isFinite), bSeries=(b.series||[]).map(x=>Number(x.value)).filter(Number.isFinite);
   const stats=scoredDecisionStats(), evo=state.evolution||{}, leader=pm.leader==='SAURON'?'KAIROS':pm.leader;
   const missing=[]; if(!u.ready)missing.push(u.reason||'Wallet snapshots missing'); if(!a.ready)missing.push(a.reason||'AI Mirror history missing'); if(!b.ready)missing.push(b.reason||'Benchmark history missing');
+  const cps=tr.decision?.checkpointStats||[], trPerf=tr.performance||{}, trPeriod=tr.period||{}, trHash=tr.integrity?.evidenceHash||'';
   return `<section class="v7-screen v7-performance"><header class="v7-page-head"><div><div class="v7-kicker">PERFORMANCE · YOU vs KAIROS</div><h1>Who made the better decisions?</h1><p>Recorded Wallet Mirror vs paper AI Mirror vs SPY benchmark. No backfilled prices and no invented history.</p></div><button class="ghost-btn" data-go="insight" data-insight-pane="evolution">Learning Lab</button></header>
   ${missing.length?`<div class="alert warn"><strong>Comparison still building.</strong><ul>${missing.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:''}
   <div class="v7-metric-grid performance-metrics"><article class="v7-metric"><span>YOUR WALLET</span><strong class="${Number(uv)>=0?'green':'red'}">${uv==null?'—':pct(uv)}</strong><small>${u.ready?'Recorded TWR':'Needs snapshots'}</small></article><article class="v7-metric accent-blue"><span>KAIROS MIRROR</span><strong class="${Number(av)>=0?'green':'red'}">${av==null?'—':pct(av)}</strong><small>${a.ready?'Paper shadow performance':'Run AI Mirror'}</small></article><article class="v7-metric"><span>SPY</span><strong>${bv==null?'—':pct(bv)}</strong><small>${b.ready?'Recorded benchmark':'Refresh market history'}</small></article><article class="v7-metric"><span>DECISION CALIBRATION</span><strong>${stats.hitRate==null?'Building':pct(stats.hitRate,0)}</strong><small>${stats.eligible} matured actionable outcome(s)</small></article><article class="v7-metric"><span>CHAMPION</span><strong>${esc(evo.champion?.version||'1.0.0')}</strong><small>${esc(evo.champion?.name||'Baseline Decision Review')}</small></article><article class="v7-metric"><span>LEADER</span><strong>${esc(leader||'Building')}</strong><small>Descriptive simulation only</small></article></div>
   <section class="v7-card performance-chart-card"><div class="v7-section-head"><div><span class="v7-kicker">NORMALIZED PERFORMANCE CURVE</span><h2>Same starting index · 100</h2></div><span class="badge ${leader&&leader!=='BUILDING'?'action':'watch'}">${esc(leader||'BUILDING')}</span></div>${Math.max(uSeries.length,aSeries.length,bSeries.length)>=2?lineChart(uSeries.length?uSeries:null,aSeries.length?aSeries:null,bSeries.length?bSeries:null,['#B59410','#5AA1FF','#8D8D92']):`<div class="v7-empty"><strong>Not enough recorded observations.</strong><span>Wallet snapshots, an approved AI Mirror and benchmark history are required.</span></div>`}<div class="chart-legend"><span><i class="legend-you"></i>Your Wallet</span><span><i class="legend-ai"></i>KAIROS Mirror</span><span><i class="legend-bench"></i>SPY</span></div></section>
+  <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">TRACK RECORD LEDGER</span><h2>Recorded evidence, not a promise.</h2></div><div class="action-row"><span class="badge ${tr.evidenceState==='RECORDED'?'action':'watch'}">${esc(tr.evidenceState||'BUILDING')}</span><button class="ghost-btn" id="exportTrackRecordBtn">Export evidence JSON</button></div></div>
+    <div class="cards-4"><div class="card"><div class="muted">Recorded period</div><strong>${esc(trPeriod.startDate||'—')} → ${esc(trPeriod.endDate||'—')}</strong><div class="tiny">${Number(trPeriod.completeSnapshotCount||0)} complete of ${Number(trPeriod.snapshotCount||0)} snapshots</div></div><div class="card"><div class="muted">Paper relative to SPY</div><div class="value ${Number(trPerf.relativeToSpy)>=0?'green':'red'}">${trPerf.relativeToSpy==null?'—':pct(trPerf.relativeToSpy)}</div><div class="tiny">Descriptive return difference, not alpha.</div></div><div class="card"><div class="muted">Matured actionable decisions</div><div class="value">${Number(tr.decision?.maturedActionableDecisions||0)}</div><div class="tiny">${Number(tr.decision?.scoredPointInTimeOutcomes||0)} point-in-time outcome observations</div></div><div class="card"><div class="muted">Evidence hash</div><strong style="font-family:monospace;font-size:14px">${esc(trHash?trHash.slice(0,16)+'…':'—')}</strong><div class="tiny">SHA-256 · export contains the full hash.</div></div></div>
+    <div class="chart-wrap" style="overflow:auto;margin-top:14px"><table><thead><tr><th>Checkpoint</th><th>Observations</th><th>Directional hits</th><th>Hit rate</th><th>Avg directional return</th></tr></thead><tbody>${cps.map(x=>`<tr><td>${Number(x.days)}D</td><td>${Number(x.observations||0)}</td><td>${Number(x.correct||0)}</td><td>${x.directionalHitRate==null?'—':pct(x.directionalHitRate,0)}</td><td>${x.averageDirectionalReturn==null?'—':pct(x.averageDirectionalReturn)}</td></tr>`).join('')||'<tr><td colspan="5">No matured point-in-time outcomes yet.</td></tr>'}</tbody></table></div>
+    <div class="alert warn" style="margin-top:14px"><strong>Paper evidence only.</strong> Historical paper results do not establish future performance or market edge. The integrity hash detects changes to this export; it is <strong>not an external audit</strong> or third-party attestation.</div>
+  </section>
   <div class="two-col"><section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">CALIBRATION</span><h2>Was KAIROS directionally right?</h2></div></div><div class="v7-calibration"><div><strong>${stats.eligible}</strong><span>Matured ADD/REDUCE decisions</span></div><div><strong>${stats.hitRate==null?'—':pct(stats.hitRate,0)}</strong><span>Directional hit rate</span></div><div><strong>${stats.noAction}</strong><span>HOLD / WATCH / ABSTAIN decisions</span></div></div><p class="tiny">Only matured stored outcomes count. KAIROS does not manufacture a calibration score before evidence exists.</p></section><section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">LEARNING LOOP</span><h2>Trace → score → challenge</h2></div></div><p class="report-text">Matured decisions feed Learning Lab. A challenger must beat the champion on holdout data and still requires human promotion.</p><button class="primary-btn" data-go="insight" data-insight-pane="evolution">Inspect champion vs challenger</button></section></div>
-  <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">METHOD & LIMITS</span><h2>What these lines mean</h2></div></div><div class="v7-condition-list"><div><span></span><p>Wallet: transaction-ledger snapshots adjusted for recorded external cash flows.</p></div><div><span></span><p>KAIROS: paper allocation performance from recorded market states; no brokerage execution is implied.</p></div><div><span></span><p>Benchmark: recorded SPY ETF series. Missing or stale marks are not filled with fabricated prices.</p></div></div></section></section>`;
+  <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">METHOD & LIMITS</span><h2>What these lines mean</h2></div></div><div class="v7-condition-list"><div><span></span><p>Wallet: transaction-ledger snapshots adjusted for recorded external cash flows.</p></div><div><span></span><p>KAIROS: paper allocation performance from recorded market states; no brokerage execution is implied.</p></div><div><span></span><p>Benchmark: recorded SPY ETF series. Missing or stale marks are not filled with fabricated prices.</p></div><div><span></span><p>Track Record Ledger: only point-in-time scored outcomes enter checkpoint statistics; non-point-in-time outcomes are excluded.</p></div></div></section></section>`;
 }
-
 function renderBrokerDecisions(){
   const assets=universeSymbolSet(), ds=(state.decisions||[]).filter(d=>decisionWithin(d,decisionRange)), w=state.worldState;
   return `<section class="broker-screen"><div class="broker-topline"><div><div class="eyebrow">Decision Review + RESEARCH</div><h1>Analyze. Attack. Verify. Release—or abstain.</h1><p>Research evidence and portfolio context feed four analytical perspectives, independent criticism, deterministic checks and a separate cross-provider final Decision Review adjudicator.</p></div><button class="ghost-btn" id="researchOpenAdvisor">Ask KAIROS</button></div>
@@ -944,6 +960,7 @@ function wireScreen(){
   $('#billingCheckoutBtn')?.addEventListener('click',startBillingCheckout);
   $('#billingPortalBtn')?.addEventListener('click',openBillingPortal);
   $('#refreshCommercialBtn')?.addEventListener('click',async()=>{await loadState();nav('settings');toast('Subscription status refreshed.');});
+  $('#exportTrackRecordBtn')?.addEventListener('click',exportTrackRecord);
   $('#researchOpenAdvisor')?.addEventListener('click',()=>openAdvisor('Insight')); $$('[data-insight-pane]').forEach(b=>b.onclick=()=>{insightPane=b.dataset.insightPane;render();});
   $('#discardEvolutionBtn')?.addEventListener('click',discardEvolution);
   const pickAssetFromBtn=async(b)=>{

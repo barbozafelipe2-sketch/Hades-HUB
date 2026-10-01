@@ -78,3 +78,9 @@
 - Search and pagination cover every USD crypto pair returned by the licensed provider catalog (bounded at 10,000 normalized pairs per cache snapshot).
 - Dynamic crypto symbols use canonical BASE-USD identifiers and resolve licensed quote/history on demand for Broker, paper execution and Decision Review.
 - Non-USD pairs are intentionally excluded from the paper-broker catalog to keep pricing/accounting currency coherent.
+
+## Commercial Hard Fix 3/3 — track record evidence
+- Added deterministic Track Record Ledger built only from recorded paper snapshots and point-in-time decision outcomes.
+- Added SPY-relative paper return, data coverage, checkpoint scorecards at 1/7/30/90/365 days, and explicit exclusion of non-point-in-time outcomes.
+- Added SHA-256 evidence hashing and authenticated JSON export. The product explicitly states that this is an integrity check, not an external audit or third-party attestation.
+- Added claims guardrails: paper-only, descriptive, non-predictive wording; no alpha or future-return claim is generated from the ledger.

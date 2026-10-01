@@ -7,6 +7,7 @@ import { providerStatus } from '../lib/providers.mjs';
 import { persistenceStatus, configurePersistenceForRequest } from '../lib/store.mjs';
 import { commercialStatus } from '../lib/commercial-control.mjs';
 import { DEFAULT_STRATEGY,normalizeStrategy,evaluateStrategy,diagnoseDecisions,splitScoredHoldout,MATURITY_THRESHOLD } from '../lib/evolution.mjs';
+import { buildTrackRecord } from '../lib/track-record.mjs';
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
@@ -37,5 +38,6 @@ export default async (req,context)=>{
     split:{maturedCount:split.maturedCount,inspireCount:split.inspireCount,holdoutCount:split.holdoutCount,threshold:MATURITY_THRESHOLD},
     live:split.maturedCount>=MATURITY_THRESHOLD
   };
-  return json({profile,settings,portfolio,worldState,traceStatus,decisions,performance,snapshots:snapshots.slice(-120),auth,aiMirror,walletMirror,evolution:evolutionEnriched,paperOrders,watchlist,openAIStatus:openAIConnectionStatus(worldState),providers,commercial,persistence:persistenceStatus(),serverTime:new Date().toISOString()});
+  const trackRecord=buildTrackRecord({snapshots,decisions});
+  return json({profile,settings,portfolio,worldState,traceStatus,decisions,performance,snapshots:snapshots.slice(-120),trackRecord,auth,aiMirror,walletMirror,evolution:evolutionEnriched,paperOrders,watchlist,openAIStatus:openAIConnectionStatus(worldState),providers,commercial,persistence:persistenceStatus(),serverTime:new Date().toISOString()});
 };
