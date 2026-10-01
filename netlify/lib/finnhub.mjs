@@ -7,6 +7,23 @@ const CRYPTO_CANONICAL_RE=/^([A-Z0-9]{1,18})-USD$/;
 
 function key(){ return String(getEnv('FINNHUB_API_KEY')).trim(); }
 export function finnhubConfigured(){ return !!key(); }
+export async function finnhubCryptoCatalog({exchange='BINANCE',timeoutMs=12000}={}){
+  const ex=String(exchange||'BINANCE').trim().toUpperCase().replace(/[^A-Z0-9._-]/g,'').slice(0,24)||'BINANCE';
+  const d=await fh('/crypto/symbol',{exchange:ex},Math.max(1000,Math.min(15000,Number(timeoutMs)||12000)));
+  const rows=Array.isArray(d)?d:[];
+  const out=[];
+  for(const row of rows.slice(0,30000)){
+    const vendor=String(row?.symbol||'').trim().toUpperCase();
+    const display=String(row?.displaySymbol||row?.display_symbol||'').trim().toUpperCase();
+    let base='';
+    let m=display.match(/^([A-Z0-9]{1,18})[\/-]USDT$/);
+    if(m) base=m[1];
+    if(!base){ m=vendor.match(/^[A-Z0-9._-]+:([A-Z0-9]{1,18})USDT$/); if(m) base=m[1]; }
+    if(!base) continue;
+    out.push({symbol:`${base}/USD`,currencyBase:String(row?.description||base).trim()||base,currencyQuote:'US Dollar',availableExchanges:[ex],vendorSymbol:vendor});
+  }
+  return out;
+}
 export function finnhubSymbol(symbol){
   const s=String(symbol||'').trim().toUpperCase();
   const m=s.match(CRYPTO_CANONICAL_RE);

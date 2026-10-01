@@ -1,4 +1,5 @@
 import { twelveConfigured, twelveCryptoCatalog } from './twelve-data.mjs';
+import { finnhubConfigured, finnhubCryptoCatalog } from './finnhub.mjs';
 import { getSystemJSON, setSystemJSON } from './store.mjs';
 
 const CACHE_KEY='catalog/crypto-usd-v2';
@@ -62,21 +63,26 @@ export async function getCryptoCatalog({force=false}={}){
   if(!force && Array.isArray(cached?.assets) && cached.assets.length && Number.isFinite(cachedAt) && now-cachedAt<CACHE_TTL_MS){
     return {...cached,stale:false,cacheHit:true};
   }
+  const rows=[]; const providers=[]; const errors=[];
   if(twelveConfigured()){
-    try{
-      const rows=await twelveCryptoCatalog();
-      const assets=normalizeCatalog(rows);
-      if(assets.length){
-        const fresh={generatedAt:new Date().toISOString(),provider:'twelve_data',quoteCurrency:'USD',assets,total:assets.length};
-        try{ await setSystemJSON(CACHE_KEY,fresh); }catch{}
-        return {...fresh,stale:false,cacheHit:false};
-      }
-    }catch(e){
-      if(Array.isArray(cached?.assets) && cached.assets.length) return {...cached,stale:true,cacheHit:true,error:String(e?.message||e).slice(0,180)};
-    }
+    try{ rows.push(...await twelveCryptoCatalog()); providers.push('twelve_data'); }
+    catch(e){ errors.push(`twelve_data:${String(e?.message||e).slice(0,140)}`); }
   }
-  const assets=fallbackCatalog();
-  return {generatedAt:new Date().toISOString(),provider:null,quoteCurrency:'USD',assets,total:assets.length,stale:true,cacheHit:false,error:twelveConfigured()?'CRYPTO_CATALOG_UNAVAILABLE':'TWELVE_DATA_NOT_CONFIGURED'};
+  if(finnhubConfigured()){
+    try{ rows.push(...await finnhubCryptoCatalog()); providers.push('finnhub'); }
+    catch(e){ errors.push(`finnhub:${String(e?.message||e).slice(0,140)}`); }
+  }
+  const assets=normalizeCatalog(rows);
+  if(assets.length){
+    const fresh={generatedAt:new Date().toISOString(),provider:providers.join('+')||null,quoteCurrency:'USD',assets,total:assets.length,providerErrors:errors};
+    try{ await setSystemJSON(CACHE_KEY,fresh); }catch{}
+    return {...fresh,stale:false,cacheHit:false};
+  }
+  if(Array.isArray(cached?.assets) && cached.assets.length){
+    return {...cached,stale:true,cacheHit:true,error:errors.join('|')||'CRYPTO_CATALOG_REFRESH_FAILED'};
+  }
+  const fallback=fallbackCatalog();
+  return {generatedAt:new Date().toISOString(),provider:null,quoteCurrency:'USD',assets:fallback,total:fallback.length,stale:true,cacheHit:false,error:errors.join('|')||(twelveConfigured()||finnhubConfigured()?'CRYPTO_CATALOG_UNAVAILABLE':'CRYPTO_CATALOG_PROVIDER_NOT_CONFIGURED')};
 }
 
 function score(asset,q){
