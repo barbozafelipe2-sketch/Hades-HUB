@@ -4,7 +4,7 @@
 68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53  ./.nvmrc
 da6dcc2462938fb22ec562e7e8fdd822b383db6d77cb02a2840beaad019c601a  ./CHANGELOG_V7_1.md
 55a905c4b56f3a4c9a23d831cd27e78e1ec7b841eefc04d12b98c1062d9f277c  ./CHANGELOG_V7_2.md
-62f2bbe67ef8f4f76a6be6bed2ace3becba26ac30a7bdcfdff666a6226036f2a  ./CHANGELOG_V7_3.md
+7488d4d67b3090ecd381ff45f52feed7960c3bca15f461f26a144dc5decab88e  ./CHANGELOG_V7_3.md
 9358a54ad9ce7d7814f8b8eccd1aae718019039fba4a55ef6c66fa102ed378d7  ./CHANGELOG_v7.md
 9b1f27bdb4a8a5c14f61974daa695aee05f48c868c6ebca486b3a4a6af836f01  ./COMMERCIAL_READINESS.md
 284157164f4c2f1c260da77b9eda551c6461d1d74489e5ca46a1ae5936f3e5a8  ./KAIROS_REBRAND.md
@@ -106,7 +106,7 @@ c3c02ef607f8e86af93abecd2fec567928d96f9591d750e8eb0092fb8df32bc3  ./reference-ui
 32230633cbc56a171bc7fb1d53b8725e3be1bde7ec5cf15f2722b32b3852e16f  ./test/final-fix.test.mjs
 8f2b109b5a26aabfaeb88f85abc497d2bfa32b6734ea7c3ce7b6aabd693475a5  ./test/hard-fix-1.test.mjs
 459838e51598cb381494907a412d8544829abe662ceb7578e767eca4a037bc85  ./test/hard-fix-2.test.mjs
-7a48beb338715fa40d84a2be7de6cb8188581b3c045c05db79c99f164b48e8b7  ./test/hard-fix-3.test.mjs
+630a5b716ccdcce1209f8a759c4f91f7641d40ab9b9986bf68539363efe02e02  ./test/hard-fix-3.test.mjs
 a8ec269c1e5f6ff31bae1b8538306b08471f1e35799158f3029149245d71b0f2  ./test/hardening-v7-2.test.mjs
 e843de8e8de73adc7771cd30ef2cefd8db7b156d180dc4670a365d0cf84c3a81  ./test/kairos-rebrand.test.mjs
 66932b5ac1b513708c6fc29a22ba72cc484c50fed8fa9b87a2aa4a264b6a8f93  ./test/polish-v7-3.test.mjs

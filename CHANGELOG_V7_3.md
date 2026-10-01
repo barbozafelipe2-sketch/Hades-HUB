@@ -58,3 +58,4 @@
 - Database records are additionally namespaced by production vs deploy ID so Deploy Preview code cannot query copied production rows.
 - Commercial email signup remains pending until Identity confirms the address; confirmation provisions the preallocated tenant/user IDs.
 - GitHub CI now runs on both `main` and `kairos-commercial-hardening` during the staged commercial hardening sequence.
+- GitHub CI no longer fakes a Netlify runtime for distributed Blob-lock tests; it verifies the conditional-write protocol structurally and leaves runtime execution to Deploy Preview.
