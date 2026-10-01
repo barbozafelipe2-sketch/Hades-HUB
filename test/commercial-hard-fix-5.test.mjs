@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { commercialReleaseGate } from '../netlify/lib/release-gate.mjs';
+
+process.env.KAIROS_PRODUCT_MODE='paper_research';
+process.env.KAIROS_REAL_MONEY_EXECUTION='false';
+process.env.KAIROS_PUBLIC_RELEASE_APPROVED='true';
+process.env.KAIROS_PREVIEW_SMOKE_APPROVED='true';
+process.env.KAIROS_LEGAL_REVIEW_VERSION='qa-review-v1';
+process.env.KAIROS_LEGAL_REVIEWED_AT=new Date(Date.now()-3600000).toISOString();
+process.env.KAIROS_SUPPORT_EMAIL='support@kairos.example';
+process.env.KAIROS_APP_URL='https://kairos.example';
+
+const good=commercialReleaseGate({identityConfigured:true,legalConfigured:true,billingConfigured:true,signupRequested:true,publicSignupReady:true,billingRequired:true});
+assert.equal(good.ready,true);
+assert.deepEqual(good.blockers,[]);
+assert.equal(good.claimsPolicy.paperOnly,true);
+assert.equal(good.claimsPolicy.predictiveClaimsAllowed,false);
+assert.equal(good.claimsPolicy.realOrderExecutionAllowed,false);
+
+process.env.KAIROS_REAL_MONEY_EXECUTION='true';
+const realMoney=commercialReleaseGate({identityConfigured:true,legalConfigured:true,billingConfigured:true,signupRequested:true,publicSignupReady:true,billingRequired:true});
+assert.equal(realMoney.ready,false);
+assert.ok(realMoney.blockers.includes('real_money_execution_disabled'));
+process.env.KAIROS_REAL_MONEY_EXECUTION='false';
+
+process.env.KAIROS_PUBLIC_RELEASE_APPROVED='false';
+const locked=commercialReleaseGate({identityConfigured:true,legalConfigured:true,billingConfigured:true,signupRequested:true,publicSignupReady:true,billingRequired:true});
+assert.equal(locked.ready,false);
+assert.ok(locked.blockers.includes('public_release_approved'));
+
+const env=fs.readFileSync(new URL('../.env.example',import.meta.url),'utf8');
+assert.match(env,/KAIROS_PUBLIC_RELEASE_APPROVED=false/);
+assert.match(env,/KAIROS_PREVIEW_SMOKE_APPROVED=false/);
+assert.match(env,/KAIROS_PRODUCT_MODE=paper_research/);
+assert.match(env,/KAIROS_REAL_MONEY_EXECUTION=false/);
+const auth=fs.readFileSync(new URL('../netlify/lib/auth.mjs',import.meta.url),'utf8');
+assert.match(auth,/COMMERCIAL_RELEASE_GATE_CLOSED/);
+assert.match(auth,/commercialReleaseGate/);
+const readiness=fs.readFileSync(new URL('../netlify/functions/launch-readiness.mjs',import.meta.url),'utf8');
+assert.match(readiness,/requireRole\(session,\['owner'\]\)/);
+assert.match(readiness,/Technical release gate only/);
+const pkg=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8'));
+assert.ok(pkg.scripts.verify.includes('npm run claims'));
+assert.ok(pkg.scripts.test.includes('commercial-hard-fix-5.test.mjs'));
+const index=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
+assert.ok(!index.includes('FOR A WEALTHIER YOU'));
+assert.match(index,/Past paper results are descriptive, not predictive/);
+const copyCheck=fs.readFileSync(new URL('../scripts/check-commercial-copy.mjs',import.meta.url),'utf8');
+assert.match(copyCheck,/beat_market_promise/);
+assert.match(copyCheck,/guaranteed_return/);
+console.log('commercial-hard-fix-5: PASS');

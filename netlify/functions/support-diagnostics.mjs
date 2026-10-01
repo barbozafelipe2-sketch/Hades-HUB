@@ -1,4 +1,4 @@
-import { requireSession, requireRole } from '../lib/auth.mjs';
+import { requireSession, requireRole, commercialReleaseState } from '../lib/auth.mjs';
 import { json } from '../lib/http.mjs';
 import { configurePersistenceForRequest, persistenceStatus } from '../lib/store.mjs';
 import { commercialStatus } from '../lib/commercial-control.mjs';
@@ -20,6 +20,7 @@ export default async (req,context)=>{
     commercial,
     persistence:persistenceStatus(),
     billingCapabilities:stripeBillingConfig(),
+    releaseGate:commercialReleaseState(),
     providerReadiness:{
       aiGateway:providers?.aiGateway?.configured===true,
       openai:providers?.openai?.configured===true,

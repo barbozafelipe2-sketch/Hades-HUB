@@ -96,3 +96,20 @@ By default `KAIROS_REQUIRE_BILLING_FOR_SIGNUP=true`; therefore the public accoun
 AI cost controls use monthly internal units (`KAIROS_TRIAL_AI_UNITS`, `KAIROS_PRO_AI_UNITS`) plus per-feature weights. They are operational guardrails, not money/tokens. The migrated private owner plan is unlimited. Existing tenant data remains readable/exportable if access expires, but paper mutations, market refresh and AI workflows are blocked until entitlement is active again.
 
 Owner support surfaces are `commercial-status`, `audit-log`, and `support-diagnostics`. They are authenticated/owner-scoped and intentionally omit passwords, provider secrets, raw prompts and position-level financial data from the support diagnostic bundle.
+
+## Final commercial release gate
+
+Public signup remains closed unless the existing Identity/legal/billing requirements **and** all final release controls are satisfied:
+
+- `KAIROS_PRODUCT_MODE=paper_research`
+- `KAIROS_REAL_MONEY_EXECUTION=false`
+- `KAIROS_PUBLIC_RELEASE_APPROVED=true`
+- `KAIROS_PREVIEW_SMOKE_APPROVED=true`
+- `KAIROS_LEGAL_REVIEW_VERSION=<version>`
+- `KAIROS_LEGAL_REVIEWED_AT=<ISO timestamp>`
+- `KAIROS_SUPPORT_EMAIL=<support inbox>`
+- canonical `KAIROS_APP_URL` must be HTTPS
+
+Leave the approval flags false while configuring or testing. The owner-only `launch-readiness` endpoint shows non-secret blockers. `npm run verify` also runs the commercial-copy claims scan.
+
+These technical controls do not constitute legal clearance. The intended service, public claims, privacy/retention policy, market-data licensing, tax/billing posture and any securities-law implications still require the appropriate professional review before launch.

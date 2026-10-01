@@ -40,6 +40,7 @@ function friendlyError(msg){
   if(/PRIVATE_OWNER_DELETE_BLOCKED/i.test(m)) return 'The original private owner workspace is protected from self-service deletion.';
   if(/DELETION_CONFIRMATION_REQUIRED/i.test(m)) return 'Deletion confirmation phrase did not match.';
   if(/STRIPE_CANCELLATION_FAILED/i.test(m)) return 'KAIROS could not confirm subscription cancellation, so no workspace purge was performed. Try again or contact support.';
+  if(/COMMERCIAL_RELEASE_GATE_CLOSED/i.test(m)) return 'Public signup is still locked by the KAIROS commercial release gate.';
   if(/FRESH_MARK_REQUIRED/i.test(m)) return 'Refresh market prices before placing a Market order. KAIROS will not execute against a stale mark.';
   if(/INSUFFICIENT_TRACKED_CASH|INSUFFICIENT_BUYING_POWER/i.test(m)) return 'Not enough simulated buying power for this order.';
   if(/SELL_EXCEEDS_POSITION|INSUFFICIENT_HOLDINGS_FOR_ORDER/i.test(m)) return 'That sell exceeds the shares currently available in Wallet Mirror.';
@@ -183,6 +184,16 @@ async function checkSession(){
   }catch{ showLogin(); }
 }
 
+async function runLaunchReadiness(btn){
+  loading(btn,true,'Checking');
+  try{
+    const r=await api('launch-readiness',{timeoutMs:20000});
+    const el=$('#launchReadinessResult');
+    if(el) el.textContent=r.ready?'READY — all technical release gates are green.':'LOCKED — '+(r.blockers||[]).join(', ');
+    toast(r.ready?'Commercial release gate is green.':'Commercial release remains locked.');
+  }catch(e){ toast(e.message||'Could not evaluate release readiness.'); }
+  finally{ loading(btn,false); }
+}
 async function deleteWorkspace(){
   if(state.auth?.user?.role!=='owner') return toast('Only the workspace owner can delete it.');
   if(String(state.commercial?.tenant?.plan||'').toLowerCase()==='private') return toast('The original private owner workspace is protected from self-service deletion.');
@@ -934,6 +945,10 @@ function renderSettings(){
 
     <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">SUBSCRIPTION & USAGE</span><h2>${esc(String(access.status||'active').replaceAll('_',' '))}</h2></div><span class="badge ${access.allowed!==false?'action':'abstain'}">${access.allowed!==false?'ACCESS ACTIVE':'ACTION REQUIRED'}</span></div><div class="v7-setting-rows"><div><span>Plan</span><strong>${esc(commercial.tenant?.plan||'private')}</strong></div><div><span>AI units · ${esc(usage.period||'current month')}</span><strong>${usage.limit==null?'UNLIMITED':`${Number(usage.used||0)} / ${Number(usage.limit||0)}`}</strong></div><div><span>Renewal / trial end</span><strong>${access.currentPeriodEnd?esc(String(access.currentPeriodEnd).slice(0,10)):'—'}</strong></div><div><span>Billing provider</span><strong>${commercial.billing?.provider==='stripe'?'STRIPE':commercial.tenant?.plan==='private'?'PRIVATE OWNER':'NOT LINKED'}</strong></div></div>${state.auth?.user?.role==='owner'&&commercial.tenant?.plan!=='private'?`<div class="action-row" style="margin-top:14px">${commercial.billing?.customerLinked?`<button class="primary-btn" id="billingPortalBtn">Manage billing</button>`:`<button class="primary-btn" id="billingCheckoutBtn">Start / activate subscription</button>`}<button class="ghost-btn" id="refreshCommercialBtn">Refresh status</button></div>`:''}<div class="tiny" style="margin-top:10px">AI units are internal cost-control units, not tokens or dollars. Replayed jobs with the same idempotency key do not consume twice.</div></section>
 
+    <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">COMMERCIAL RELEASE</span><h2>${state.auth?.release?.ready?'Gate approved':'Gate locked'}</h2></div><span class="badge ${state.auth?.release?.ready?'action':'watch'}">${state.auth?.release?.ready?'READY':'LOCKED'}</span></div>
+    <div class="v7-setting-rows"><div><span>Product mode</span><strong>${esc(state.auth?.release?.productMode||'paper_research')}</strong></div><div><span>Real-money execution</span><strong>${state.auth?.release?.realMoneyExecution?'ON':'OFF'}</strong></div><div><span>Preview smoke approval</span><strong>${state.auth?.release?.previewSmokeApproved?'APPROVED':'PENDING'}</strong></div><div><span>Public release approval</span><strong>${state.auth?.release?.publicReleaseApproved?'APPROVED':'PENDING'}</strong></div></div>
+    ${state.auth?.user?.role==='owner'?'<button class="ghost-btn" id="launchReadinessBtn">Run launch readiness</button>':''}<div id="launchReadinessResult" class="tiny" style="margin-top:10px">Public signup remains fail-closed until every release gate is satisfied.</div></section>
+
     <section class="v7-card v7-span-2"><div class="v7-section-head"><div><span class="v7-kicker">DATA & PRIVACY</span><h2>Export or delete your workspace.</h2></div></div>
     <p class="report-text">Workspace backup and Track Record exports are available before deletion. Customer workspace deletion cancels an active Stripe subscription first, then removes tenant content, usage/audit rows and KAIROS account mappings. Netlify Identity users are deleted through the server-side admin API.</p>
     <div class="action-row"><button class="ghost-btn" id="privacyExportBtn">Export workspace backup</button><button class="ghost-btn" id="privacyTrackBtn">Export track record</button>${state.auth?.user?.role==='owner'&&String(commercial.tenant?.plan||'').toLowerCase()!=='private'?'<button class="danger-btn" id="deleteWorkspaceBtn">Delete workspace</button>':''}</div>
@@ -986,6 +1001,7 @@ function wireScreen(){
   $('#privacyExportBtn')?.addEventListener('click',exportBackup);
   $('#privacyTrackBtn')?.addEventListener('click',exportTrackRecord);
   $('#deleteWorkspaceBtn')?.addEventListener('click',deleteWorkspace);
+  $('#launchReadinessBtn')?.addEventListener('click',e=>runLaunchReadiness(e.currentTarget));
   $('#researchOpenAdvisor')?.addEventListener('click',()=>openAdvisor('Insight')); $$('[data-insight-pane]').forEach(b=>b.onclick=()=>{insightPane=b.dataset.insightPane;render();});
   $('#discardEvolutionBtn')?.addEventListener('click',discardEvolution);
   const pickAssetFromBtn=async(b)=>{

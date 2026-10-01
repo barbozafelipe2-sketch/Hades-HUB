@@ -110,3 +110,14 @@ Still required before public paid launch: deletion/privacy lifecycle, legal/clai
 - The original private owner workspace remains protected from accidental self-service deletion.
 
 This implements the technical lifecycle. Final privacy-policy wording, statutory retention requirements and jurisdiction-specific obligations still require legal review before public launch.
+
+## Hard Fix 5/5 — public release controls
+
+- Public signup is now gated by explicit release approval and a separate Deploy Preview smoke-test approval.
+- Required launch metadata includes legal-review version/timestamp, support email and canonical HTTPS app origin.
+- The release mode is paper research only; real-money execution must remain disabled.
+- Owner-only Launch Readiness reports static release blockers plus runtime persistence, AI Gateway, licensed market-feed, security and billing configuration.
+- CI scans public product copy for a bounded set of prohibited performance promises.
+- Pre-login copy states that paper results are descriptive rather than predictive.
+
+A green technical gate means the configured technical prerequisites are present. It does not determine whether KAIROS is legally permitted to offer a particular service or claim in a jurisdiction. Keep public release approval false until qualified counsel and relevant business/data-provider reviews are complete.

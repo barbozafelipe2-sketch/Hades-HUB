@@ -122,6 +122,14 @@ process.env.KAIROS_RISK_DISCLOSURE_VERSION='2026-10-01';
 process.env.KAIROS_TERMS_URL='https://kairos.example/terms';
 process.env.KAIROS_RISK_DISCLOSURE_URL='https://kairos.example/risk';
 process.env.KAIROS_PRIVACY_URL='https://kairos.example/privacy';
+process.env.KAIROS_APP_URL='https://kairos.example';
+process.env.KAIROS_SUPPORT_EMAIL='support@kairos.example';
+process.env.KAIROS_PRODUCT_MODE='paper_research';
+process.env.KAIROS_REAL_MONEY_EXECUTION='false';
+process.env.KAIROS_PUBLIC_RELEASE_APPROVED='true';
+process.env.KAIROS_PREVIEW_SMOKE_APPROVED='true';
+process.env.KAIROS_LEGAL_REVIEW_VERSION='qa-review-v1';
+process.env.KAIROS_LEGAL_REVIEWED_AT=new Date(Date.now()-3600000).toISOString();
 qa.user=null;
 const mkReq=()=>new Request('https://local/.netlify/functions/auth-signup',{method:'POST',headers:{origin:'https://local'}});
 const [a,b]=await Promise.all([

@@ -8,6 +8,7 @@ import {
   withSystemKeyLock,persistenceStatus,configureTenantForRequest,currentTenantContext
 } from './store.mjs';
 import { getEnv, isNetlifyRuntime } from './env.mjs';
+import { commercialReleaseGate } from './release-gate.mjs';
 
 const COOKIE='kairos_session';
 const LEGACY_COOKIE='sauron_session';
@@ -62,8 +63,10 @@ function commercialLegalConfig(){
   const configured=!!(termsVersion&&riskVersion&&legalEntity&&validHttps(termsUrl)&&validHttps(riskUrl)&&validHttps(privacyUrl));
   const billingAppUrl=String(getEnv('KAIROS_APP_URL')||'').trim();
   const billingConfigured=!!(String(getEnv('STRIPE_SECRET_KEY')||'').trim()&&String(getEnv('STRIPE_WEBHOOK_SECRET')||'').trim()&&/^price_[A-Za-z0-9]+$/.test(String(getEnv('KAIROS_STRIPE_PRO_PRICE_ID')||'').trim())&&validHttps(billingAppUrl));
-  const signupAllowed=requested&&configured&&launchGate&&(!billingRequired||billingConfigured);
-  return {termsVersion,riskVersion,legalEntity,termsUrl,riskUrl,privacyUrl,signupRequested:requested,signupAllowed,configured,launchGate,billingRequired,billingConfigured};
+  let identityConfigured=false; try{ identityConfigured=!!getIdentityConfig(); }catch{}
+  const releaseGate=commercialReleaseGate({identityConfigured,legalConfigured:configured,billingConfigured,signupRequested:requested,publicSignupReady:launchGate,billingRequired});
+  const signupAllowed=releaseGate.ready;
+  return {termsVersion,riskVersion,legalEntity,termsUrl,riskUrl,privacyUrl,signupRequested:requested,signupAllowed,configured,launchGate,billingRequired,billingConfigured,identityConfigured,releaseGate};
 }
 
 async function getUserRecord(id){ return id?await getSystemJSON(userKey(id),null):null; }
@@ -363,7 +366,7 @@ export async function confirmCommercialEmail(req,token){
 
 export async function createCommercialAccount(req,{email,password,fullName,acceptedTermsVersion,acceptedRiskDisclosure}){
   const legal=commercialLegalConfig();
-  if(!legal.signupAllowed){ if(!legal.signupRequested) throw new Error('SIGNUPS_DISABLED'); if(!legal.launchGate) throw new Error('PUBLIC_SIGNUP_NOT_RELEASED'); if(!legal.configured) throw new Error('COMMERCIAL_LEGAL_CONFIG_REQUIRED'); if(legal.billingRequired&&!legal.billingConfigured) throw new Error('COMMERCIAL_BILLING_CONFIG_REQUIRED'); throw new Error('SIGNUPS_DISABLED'); }
+  if(!legal.signupAllowed){ if(!legal.signupRequested) throw new Error('SIGNUPS_DISABLED'); if(!legal.launchGate) throw new Error('PUBLIC_SIGNUP_NOT_RELEASED'); if(!legal.configured) throw new Error('COMMERCIAL_LEGAL_CONFIG_REQUIRED'); if(!legal.identityConfigured) throw new Error('IDENTITY_NOT_CONFIGURED'); if(legal.billingRequired&&!legal.billingConfigured) throw new Error('COMMERCIAL_BILLING_CONFIG_REQUIRED'); if(!legal.releaseGate?.ready) throw new Error('COMMERCIAL_RELEASE_GATE_CLOSED'); throw new Error('SIGNUPS_DISABLED'); }
   if(!getIdentityConfig()) throw new Error('IDENTITY_NOT_CONFIGURED');
   await bootstrapCommercialAuth();
   const clean=cleanEmail(email); if(String(password||'').length<12) throw new Error('PASSWORD_TOO_SHORT');
@@ -406,8 +409,9 @@ export async function createCommercialAccount(req,{email,password,fullName,accep
 
 export async function activateTenantForInternal(tenantId){ const tenant=await getTenant(String(tenantId||'')); if(!tenant||tenant.status!=='active') throw new Error('TENANT_NOT_ACTIVE'); configureTenantForRequest({tenantId:tenant.id,role:'system',userId:'system'}); return tenant; }
 export async function listActiveTenants(){ await bootstrapCommercialAuth(); const ids=await getSystemJSON(TENANT_INDEX_KEY,[]),out=[]; for(const id of Array.isArray(ids)?ids:[]){ const t=await getTenant(id); if(t?.status==='active') out.push(t); } return out; }
+export function commercialReleaseState(){ return commercialLegalConfig().releaseGate; }
 export async function publicAuthState(session=null){
-  const legal=commercialLegalConfig(); const identityConfigured=!!getIdentityConfig(); let user=null,tenant=null;
+  const legal=commercialLegalConfig(); const identityConfigured=legal.identityConfigured===true; let user=null,tenant=null;
   if(session?.userId){ user=await getUserRecord(session.userId); tenant=await getTenant(session.tenantId); }
-  return {mode:'commercial_multi_tenant',authProvider:session?.authProvider||null,user:user?{id:user.id,username:user.username,email:user.email||'',role:user.role||'member'}:null,tenant:tenant?{id:tenant.id,name:tenant.name,plan:tenant.plan||'private',status:tenant.status}:null,username:user?.username||null,mustChangeDefault:!!user?.mustChangeDefault,sessionMaxAgeHours:Math.round((SESSION_MAX_AGE_MS/3600000)*10)/10,signupAllowed:legal.signupAllowed&&identityConfigured,identityConfigured,billingReady:legal.billingConfigured,billingRequired:legal.billingRequired,legalEntity:legal.legalEntity||null,termsVersion:legal.termsVersion||null,riskDisclosureVersion:legal.riskVersion||null,termsUrl:legal.termsUrl||null,riskDisclosureUrl:legal.riskUrl||null,privacyUrl:legal.privacyUrl||null,persistence:persistenceStatus(),tenantContext:currentTenantContext()?true:false,legacyAuthEnabled:legacyAuthEnabled()};
+  return {mode:'commercial_multi_tenant',authProvider:session?.authProvider||null,user:user?{id:user.id,username:user.username,email:user.email||'',role:user.role||'member'}:null,tenant:tenant?{id:tenant.id,name:tenant.name,plan:tenant.plan||'private',status:tenant.status}:null,username:user?.username||null,mustChangeDefault:!!user?.mustChangeDefault,sessionMaxAgeHours:Math.round((SESSION_MAX_AGE_MS/3600000)*10)/10,signupAllowed:legal.signupAllowed&&identityConfigured,identityConfigured,billingReady:legal.billingConfigured,billingRequired:legal.billingRequired,legalEntity:legal.legalEntity||null,termsVersion:legal.termsVersion||null,riskDisclosureVersion:legal.riskVersion||null,termsUrl:legal.termsUrl||null,riskDisclosureUrl:legal.riskUrl||null,privacyUrl:legal.privacyUrl||null,release:{ready:legal.releaseGate?.ready===true,productMode:legal.releaseGate?.productMode||'paper_research',realMoneyExecution:legal.releaseGate?.realMoneyExecution===true,publicReleaseApproved:legal.releaseGate?.publicReleaseApproved===true,previewSmokeApproved:legal.releaseGate?.previewSmokeApproved===true},persistence:persistenceStatus(),tenantContext:currentTenantContext()?true:false,legacyAuthEnabled:legacyAuthEnabled()};
 }

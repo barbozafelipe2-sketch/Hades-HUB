@@ -92,3 +92,11 @@
 - Tenant state, Blobs, usage rows, audit rows, login/billing mappings and Netlify Identity users are removed; only an anonymous deletion receipt remains.
 - The original private owner workspace is protected from self-service deletion unless an explicit server-side override is enabled.
 - Added Data & Privacy controls for workspace backup, Track Record export and deletion.
+
+## Commercial Hard Fix 5/5 — public release gate
+- Added fail-closed Commercial Release Gate for public signup.
+- Public launch requires versioned/timestamped legal review, Terms/Risk/Privacy configuration, canonical HTTPS URL, support contact, Identity, billing when required, approved Preview smoke test, and explicit public-release approval.
+- Product mode is locked to paper_research for this release and real-money execution must remain disabled.
+- Added owner-only launch-readiness diagnostics combining release configuration, Postgres persistence, AI Gateway, licensed market feed, security and billing readiness.
+- Added CI commercial-copy guardrails against guaranteed-return, beat-the-market, get-rich, risk-free-profit and similar promises.
+- Replaced wealth-promise-flavored public copy with descriptive paper-research language.
