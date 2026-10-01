@@ -12,6 +12,7 @@ process.env.STRIPE_WEBHOOK_SECRET='qa_webhook_secret_kairos_hf2';
 delete process.env.NETLIFY; delete process.env.SITE_ID;
 const store=await import('../netlify/lib/store.mjs');
 const commercial=await import('../netlify/lib/commercial-control.mjs');
+const auth=await import('../netlify/lib/auth.mjs');
 const stripe=await import('../netlify/lib/stripe-billing.mjs');
 const db=await import('../netlify/lib/database.mjs');
 const webhook=(await import('../netlify/functions/billing-webhook.mjs')).default;
@@ -38,6 +39,15 @@ await assert.rejects(()=>commercial.assertCommercialAccess(trialSession,{feature
 
 store.configurePersistenceForRequest({}); store.configureTenantForRequest({tenantId:expiredTrial.id,userId:'u_expired',role:'owner'});
 await assert.rejects(()=>commercial.assertCommercialAccess({tenantId:expiredTrial.id,userId:'u_expired',role:'owner'}),e=>e?.code==='TRIAL_EXPIRED'&&e?.httpStatus===402);
+
+// Expired trial must be rejected before provider-health can make any live AI probes.
+await store.setSystemJSON('auth/users/u_expired',{id:'u_expired',tenantId:expiredTrial.id,username:'expired-owner',email:'expired@example.com',role:'owner',status:'active',credentialVersion:1});
+const expiredToken=await auth.createSessionToken({userId:'u_expired',tenantId:expiredTrial.id,role:'owner',credentialVersion:1});
+const providerHealth=(await import('../netlify/functions/provider-health.mjs')).default;
+store.configurePersistenceForRequest({});
+const healthResponse=await providerHealth(new Request('https://local/.netlify/functions/provider-health',{headers:{cookie:`kairos_session=${encodeURIComponent(expiredToken)}`}}),{requestId:'req-expired-provider-health'});
+assert.equal(healthResponse.status,402);
+assert.equal((await healthResponse.json()).error,'TRIAL_EXPIRED');
 
 store.configurePersistenceForRequest({}); store.configureTenantForRequest({tenantId:privateTenant.id,userId:'u_private',role:'owner'});
 const privateAccess=await commercial.assertCommercialAccess({tenantId:privateTenant.id,userId:'u_private',role:'owner'},{feature:'learning-lab',consumeUnits:true,idempotencyKey:'private-1'});
@@ -107,4 +117,4 @@ const decisionSrc=fs.readFileSync(new URL('../netlify/functions/decision-run.mjs
 assert.ok(decisionSrc.includes("feature:'decision-review'"));
 const chatSrc=fs.readFileSync(new URL('../netlify/functions/ai-chat.mjs',import.meta.url),'utf8');
 assert.ok(chatSrc.includes("feature:coach.tier==='deep'?'coach-deep':'coach-fast'"));
-console.log(JSON.stringify({ok:true,tests:['trial entitlement','trial expiry','private owner unlimited','monthly usage budget','idempotent usage replay','active Stripe entitlement','signed webhook','invalid signature rejection','webhook replay idempotency','out-of-order Stripe event protection','tenant audit log','UI billing surface']},null,2));
+console.log(JSON.stringify({ok:true,tests:['trial entitlement','trial expiry','expired trial blocks provider health','private owner unlimited','monthly usage budget','idempotent usage replay','active Stripe entitlement','signed webhook','invalid signature rejection','webhook replay idempotency','out-of-order Stripe event protection','tenant audit log','UI billing surface']},null,2));

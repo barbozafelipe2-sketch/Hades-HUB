@@ -1,4 +1,5 @@
 import { requireSession } from '../lib/auth.mjs';
+import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import {
   providerConfigured,
@@ -50,10 +51,24 @@ async function pingProvider(provider){
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
-  if(!(await requireSession(req))) return json({error:'UNAUTHORIZED'},401);
+  const session=await requireSession(req);
+  if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='GET' && req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
   try{ await consumeWorkflowBudget('provider-health',{limit:6,windowMs:10*60*1000}); }
   catch(e){ return json({error:'WORKFLOW_RATE_LIMITED',retryAfterMs:Number(e?.retryAfterMs)||null},429); }
+  const configuredAIProviders=['openai','anthropic','gemini'].filter(providerConfigured).length;
+  try{
+    await assertCommercialAccess(session,{
+      feature:'provider-health',
+      consumeUnits:configuredAIProviders>0,
+      units:configuredAIProviders,
+      idempotencyKey:context?.requestId||req.headers.get('x-nf-request-id')||undefined
+    });
+  }catch(e){
+    const commercialError=commercialErrorJSON(e);
+    if(commercialError) return json(commercialError.body,commercialError.status);
+    return json({error:'COMMERCIAL_ACCESS_UNAVAILABLE'},503);
+  }
   const body=req.method==='POST'?await readJSON(req):{};
   const url=new URL(req.url);
   const resilienceTest=body.failoverTest===true || body.resilienceTest===true || url.searchParams.get('failoverTest')==='true' || url.searchParams.get('resilienceTest')==='true';

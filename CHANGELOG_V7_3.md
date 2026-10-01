@@ -72,6 +72,7 @@
 - Added relational, allowlisted audit events for authentication, billing, account changes, paper activity and backup restore outcomes.
 - Added owner-only commercial status, audit-log and sanitized support-diagnostics endpoints.
 - Public signup now requires Stripe billing readiness by default in addition to Identity/legal release gates; private beta can explicitly opt out.
+- Provider live diagnostics now require valid commercial access and consume one AI unit per configured LLM provider before any probe runs.
 
 ## Dynamic crypto universe
 - Broker crypto discovery is provider-driven instead of limited to BTC/ETH.
