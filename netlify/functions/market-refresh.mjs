@@ -6,14 +6,16 @@ import { ensureResearchSeries } from '../lib/market-research-series.mjs';
 import { beginOperationalTrace } from '../lib/ops-trace.mjs';
 import { configurePersistenceForRequest } from '../lib/store.mjs';
 import { consumeWorkflowBudget } from '../lib/workflow-limit.mjs';
+import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 
 /** Global wall so multi-symbol refresh cannot run past Netlify ~60s kill. */
 const WALL_MS=Math.max(30000,Math.min(55000,Number(getEnv('HADES_MARKET_REFRESH_WALL_MS',48000))));
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
-  if(!(await requireSession(req))) return json({error:'UNAUTHORIZED'},401);
+  const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
+  try{ await assertCommercialAccess(session); }catch(e){ const ce=commercialErrorJSON(e); if(ce)return json(ce.body,ce.status); throw e; }
   try{ await consumeWorkflowBudget('market-refresh',{limit:12,windowMs:10*60*1000}); }
   catch(e){ return json({error:'WORKFLOW_RATE_LIMITED',retryAfterMs:Number(e?.retryAfterMs)||null},429); }
   const deadlineAt=Date.now()+WALL_MS;

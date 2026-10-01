@@ -13,6 +13,7 @@ import {
 } from '../lib/portfolio-build.mjs';
 import { configurePersistenceForRequest } from '../lib/store.mjs';
 import { consumeWorkflowBudget } from '../lib/workflow-limit.mjs';
+import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 
 /** Soft ceiling so chat stays comfortably inside the synchronous Function wall. */
 const CHAT_TOTAL_BUDGET_MS=Math.max(12000,Math.min(22000,Number(getEnv('HADES_CHAT_TOTAL_BUDGET_MS','18000'))));
@@ -68,10 +69,8 @@ function mapChatError(e){
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
-  if(!(await requireSession(req))) return json({error:'UNAUTHORIZED'},401);
+  const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
-  try{ await consumeWorkflowBudget('coach',{limit:30,windowMs:10*60*1000}); }
-  catch(e){ return json({error:'WORKFLOW_RATE_LIMITED',retryAfterMs:Number(e?.retryAfterMs)||null},429); }
   const declaredBytes=Number(req.headers.get('content-length')||0);
   if(declaredBytes>MAX_CHAT_BODY_BYTES) return json({error:'PAYLOAD_TOO_LARGE'},413);
   const body=await readJSON(req); const question=String(body.question||'').trim();
@@ -80,6 +79,9 @@ export default async (req,context)=>{
   const started=Date.now();
   const op=beginOperationalTrace(req,context,{functionName:'ai-chat'});
   try{
+    try{ await assertCommercialAccess(session); }catch(e){ const ce=commercialErrorJSON(e); if(ce){await op.finish({status:'COMMERCIAL_BLOCKED',resultStatus:ce.body.error}); return json(ce.body,ce.status);} throw e; }
+    try{ await consumeWorkflowBudget('coach',{limit:30,windowMs:10*60*1000}); }
+    catch(e){ await op.finish({status:'RATE_LIMITED',error:e}); return json({error:'WORKFLOW_RATE_LIMITED',retryAfterMs:Number(e?.retryAfterMs)||null},429); }
     // --- Explicit paper-wallet build intent (server executes) ---
     if(detectBuildWalletIntent(question)){
       const [profile,mirror]=await Promise.all([getProfile(),getAIMirror()]);
@@ -136,6 +138,8 @@ export default async (req,context)=>{
     const current=/\b(today|current|latest|now|news|price|market|yield|fed|bitcoin|btc|ethereum|oil|gold|nasdaq|real estate|reit)\b/i.test(question);
     const simple=isSimpleQuestion(question);
     const coach=classifyCoachTier(question,body);
+    try{ await assertCommercialAccess(session,{feature:coach.tier==='deep'?'coach-deep':'coach-fast',consumeUnits:true,idempotencyKey:`coach:${op.requestId}`}); }
+    catch(e){ const ce=commercialErrorJSON(e); if(ce){await op.finish({status:'COMMERCIAL_BLOCKED',resultStatus:ce.body.error}); return json(ce.body,ce.status);} throw e; }
     const base=`You are KAIROS Private's explanation assistant. Explain charts, portfolio behavior, market regimes, mirrors, and audited decisions clearly. Use the supplied KAIROS context as the primary truth. Never invent a number. If data is missing, say it is missing. Clearly distinguish user data, stored KAIROS analysis, and web research. Do not claim that a decision was audited unless a stored audit object says so. This is decision support, not guaranteed outcome prediction. Chat never places trades; tell the user to use AI Mirror → Apply to Wallet (paper) or ask to “build my wallet with $X” when they want paper trades.\n\nCONTEXT:\n${JSON.stringify(context).slice(0,simple?40000:70000)}\n\nUSER QUESTION:\n${question}`;
 
     // Cost-first Gateway routing: Luna for routine explanations; Terra/deep chain only when complexity warrants it.

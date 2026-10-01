@@ -5,6 +5,7 @@ process.env.SAURON_ADMIN_USER='admin';
 process.env.SAURON_ADMIN_PASSWORD='admin123';
 process.env.KAIROS_ADMIN_EMAIL='owner@example.com';
 process.env.KAIROS_LEGACY_AUTH_ENABLED='true';
+process.env.KAIROS_REQUIRE_BILLING_FOR_SIGNUP='false';
 const store=await import('../netlify/lib/store.mjs');
 const identityProvider=await import('../netlify/lib/identity-provider.mjs');
 const auth=await import('../netlify/lib/auth.mjs');

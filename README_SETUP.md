@@ -83,3 +83,16 @@ For Netlify-local behavior use `netlify dev`.
 ## Production safety / rollback
 
 Do **not** delete or rotate the current live LLM/session/admin environment before the Git-backed Preview is healthy; the existing drop deployment may still depend on those variables. Once the V7.3 Preview passes, migrate the production environment deliberately, redeploy, smoke-test, and only then retire the old drop deployment.
+
+
+## Commercial billing and usage controls (Hard Fix 2/3)
+
+KAIROS uses Stripe-hosted Checkout/Customer Portal rather than collecting payment-card fields itself. Before opening public signup, configure a recurring Stripe Price and the server-only variables in `.env.example`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `KAIROS_STRIPE_PRO_PRICE_ID`, and `KAIROS_APP_URL`.
+
+Point the Stripe webhook at `/.netlify/functions/billing-webhook` and enable Checkout completion, subscription create/update/delete, invoice paid and invoice payment-failed events. Subscription state changes are accepted only after Stripe signature verification. The browser cannot grant itself an entitlement.
+
+By default `KAIROS_REQUIRE_BILLING_FOR_SIGNUP=true`; therefore the public account button remains closed until Identity, legal URLs/versions, the explicit launch flag, and Stripe billing configuration are all ready. Set it to `false` only for a deliberate private beta.
+
+AI cost controls use monthly internal units (`KAIROS_TRIAL_AI_UNITS`, `KAIROS_PRO_AI_UNITS`) plus per-feature weights. They are operational guardrails, not money/tokens. The migrated private owner plan is unlimited. Existing tenant data remains readable/exportable if access expires, but paper mutations, market refresh and AI workflows are blocked until entitlement is active again.
+
+Owner support surfaces are `commercial-status`, `audit-log`, and `support-diagnostics`. They are authenticated/owner-scoped and intentionally omit passwords, provider secrets, raw prompts and position-level financial data from the support diagnostic bundle.

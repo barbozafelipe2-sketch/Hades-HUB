@@ -6,6 +6,7 @@ import { runFourCoreGuardedJSONTask, publicGateMeta } from '../lib/ai-gate.mjs';
 import { JSON_PROVIDER_TIMEOUT_MS } from '../lib/llm.mjs';
 import { beginOperationalTrace } from '../lib/ops-trace.mjs';
 import { consumeWorkflowBudget } from '../lib/workflow-limit.mjs';
+import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 import { setJSON, getJSON, pruneJSONCollection, configurePersistenceForRequest } from '../lib/store.mjs';
 import { getEnv } from '../lib/env.mjs';
 import { normalizeJobId, declaredBodyTooLarge } from '../lib/input.mjs';
@@ -38,7 +39,7 @@ function mapMirrorError(e){
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
-  if(!(await requireSession(req))) return json({error:'UNAUTHORIZED'},401);
+  const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
   if(declaredBodyTooLarge(req,16000)) return json({error:'PAYLOAD_TOO_LARGE'},413);
   const body=await readJSON(req); const budget=Math.max(1,Math.min(100000000,Number(body.budget||0)));
@@ -52,6 +53,8 @@ export default async (req,context)=>{
   if(prior?.status==='RUNNING' && Date.now()-Date.parse(prior.startedAt||0)<14*60*1000){ await op.finish({status:'SKIPPED_ALREADY_RUNNING',jobId:job}); return; }
   try{ await consumeWorkflowBudget('ai-mirror',{limit:4,windowMs:600000,jobId:job}); }
   catch(e){ try{await setJSON(jobKey,{id:job,status:'ERROR',error:'WORKFLOW_RATE_LIMITED',retryAfterMs:Number(e?.retryAfterMs)||null,finishedAt:new Date().toISOString()});}catch{} await op.finish({status:'RATE_LIMITED',error:e,jobId:job}); return; }
+  try{ await assertCommercialAccess(session,{feature:'ai-mirror',consumeUnits:true,idempotencyKey:`ai-mirror:${job}`}); }
+  catch(e){ const ce=commercialErrorJSON(e); if(ce){ try{await setJSON(jobKey,{id:job,status:'ERROR',error:ce.body.error,commercial:ce.body,finishedAt:new Date().toISOString()});}catch{} await op.finish({status:'COMMERCIAL_BLOCKED',resultStatus:ce.body.error,jobId:job}); return; } throw e; }
   await pruneJSONCollection('jobs/ai-mirror/',{maxEntries:120}).catch(()=>{});
   const started=Date.now();
   // Background path: generous wall (default 90s, env up to 120s) — Netlify background allows long runs.

@@ -35,3 +35,56 @@ On the first commercial production deploy, Database migrations create the KAIROS
 **Hard Fix 3/3:** compliance/product-mode boundaries, auditable paper track record vs SPY, marketing substantiation, onboarding/landing/PWA release gate, production legal review checklist and launch controls.
 
 Technical wording and architecture do not by themselves determine investment-adviser or broker-dealer obligations. U.S. launch positioning and any paid securities analysis should be reviewed by qualified securities counsel before public sale.
+
+## Hard Fix 2/3 — billing, entitlements, cost controls and support operations
+
+Implemented in this stage:
+
+- **Stripe-hosted subscription checkout and customer portal**. KAIROS creates Checkout/Portal sessions server-side; no Stripe secret or recurring price identifier is exposed in browser code.
+- **Signed Stripe webhook authority** with timestamp tolerance, HMAC-SHA256 verification, event replay protection, stale-event rejection and active-subscription conflict protection. Unsigned billing payloads never change entitlement state.
+- **Internal entitlement state per tenant**. Stripe reports billing events; KAIROS decides application access from its own tenant-scoped record. The existing owner/private workspace remains unlimited and does not require Stripe.
+- **Read-only survival after subscription loss**. Existing workspace state can still be read/exported, while paper mutations, licensed market refreshes and paid AI workflows fail closed when a trial/subscription is inactive.
+- **Monthly AI-unit budgets per tenant** with configurable plan limits and per-feature weights. AI units are relative cost controls, not tokens, dollars or promises of a fixed model-call count.
+- **Idempotent usage accounting** in Postgres. Replaying the same request/job id does not consume a second unit charge. Rate-limit rejection happens before AI-unit consumption on long jobs.
+- **Relational audit events** for authentication, account updates, billing state changes, paper ledger/orders and backup restore outcomes. The audit payload uses an allowlist and excludes passwords, provider keys, raw prompts and portfolio contents.
+- **Owner-only Audit Log and Support Diagnostics endpoints**. Support diagnostics expose release/readiness/persistence/billing-state booleans without raw financial positions or infrastructure secrets.
+- **Public signup now requires billing readiness by default**, in addition to the legal/Identity release gates. Private beta deployments can explicitly set `KAIROS_REQUIRE_BILLING_FOR_SIGNUP=false`.
+
+### Stripe production configuration
+
+Create a recurring Stripe Price for the commercial KAIROS plan, then configure these server-only values in Netlify:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `KAIROS_STRIPE_PRO_PRICE_ID`
+- `KAIROS_APP_URL` (the canonical HTTPS web/PWA origin)
+- `KAIROS_REQUIRE_BILLING_FOR_SIGNUP=true`
+
+Configure Stripe to POST webhooks to:
+
+`/.netlify/functions/billing-webhook`
+
+KAIROS consumes these event families:
+
+- `checkout.session.completed`
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
+- `invoice.paid`
+- `invoice.payment_failed`
+
+The webhook secret is mandatory. Never configure a browser/client to update KAIROS subscription state directly.
+
+### Cost-control defaults
+
+Default internal budgets are conservative release guardrails and can be changed without code:
+
+- trial: `KAIROS_TRIAL_DAYS=14`, `KAIROS_TRIAL_AI_UNITS=120`
+- pro: `KAIROS_PRO_AI_UNITS=1200`
+- per-feature unit weights can be overridden through `KAIROS_AI_UNITS_*` environment variables documented in `.env.example`.
+
+These are **operational cost units**, not customer-visible token balances and not a guarantee of a particular number of AI calls. Provider pricing/model routing can change independently.
+
+### Still required before public paid launch
+
+**Hard Fix 3/3 remains mandatory:** compliance/product-mode boundaries, auditable paper track record vs SPY, claims/marketing substantiation, deletion/privacy lifecycle, landing/onboarding/PWA launch gates, production legal-review checklist and final release controls.

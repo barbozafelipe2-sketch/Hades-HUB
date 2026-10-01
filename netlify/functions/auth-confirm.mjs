@@ -2,6 +2,7 @@ import { confirmCommercialEmail, createSessionToken, sessionCookie, publicAuthSt
 import { json, readJSON } from '../lib/http.mjs';
 import { declaredBodyTooLarge } from '../lib/input.mjs';
 import { configurePersistenceForRequest, configureTenantForRequest } from '../lib/store.mjs';
+import { auditCommercialEvent } from '../lib/commercial-control.mjs';
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
@@ -12,6 +13,7 @@ export default async (req,context)=>{
     const principal=await confirmCommercialEmail(req,body?.token);
     configureTenantForRequest(principal);
     const token=await createSessionToken(principal);
+    await auditCommercialEvent(principal,'auth.email_confirmed',{requestId:context?.requestId,details:{source:'netlify_identity'}}).catch(()=>{});
     return json({ok:true,auth:await publicAuthState(principal)},200,{'set-cookie':sessionCookie(token)});
   }catch(e){
     const code=String(e?.message||e),status=Number(e?.status||0);

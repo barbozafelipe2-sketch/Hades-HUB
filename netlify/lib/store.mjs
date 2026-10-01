@@ -52,13 +52,13 @@ const DB_EXACT_KEYS=new Set([
 ]);
 function databaseBackedKey(key){
   const k=String(key||'').replace(/^\/+/, '');
-  return DB_EXACT_KEYS.has(k)||['decisions/','limits/','restore/'].some(prefix=>k.startsWith(prefix));
+  return DB_EXACT_KEYS.has(k)||['decisions/','limits/','restore/','commercial/'].some(prefix=>k.startsWith(prefix));
 }
 function databaseBackedPrefix(prefix){
   const p=String(prefix||'').replace(/^\/+/, '');
   if(!p) return null;
   if(DB_EXACT_KEYS.has(p)) return true;
-  return ['decisions/','limits/','restore/'].some(x=>p.startsWith(x)||x.startsWith(p));
+  return ['decisions/','limits/','restore/','commercial/'].some(x=>p.startsWith(x)||x.startsWith(p));
 }
 function tenantIdRequired(){
   const tenant=activeContext()?.tenant;

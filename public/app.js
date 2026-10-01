@@ -33,6 +33,9 @@ function pct(v,d=2){if(v==null||v===''||Number.isNaN(Number(v))) return '—'; c
 function dateLabel(s){ if(!s) return 'Not yet'; const d=new Date(s); return isNaN(d)?s:d.toLocaleString(); }
 function friendlyError(msg){
   const m=String(msg||'');
+  if(/TRIAL_EXPIRED/i.test(m)) return 'Your KAIROS trial has ended. Open Settings → Subscription & Usage to activate access.';
+  if(/SUBSCRIPTION_REQUIRED/i.test(m)) return 'An active KAIROS subscription is required for this action. Open Settings → Subscription & Usage.';
+  if(/USAGE_BUDGET_EXCEEDED/i.test(m)) return 'This workspace reached its monthly AI usage limit. Your paper data remains available; AI workflows resume when the limit resets or the plan changes.';
   if(/FRESH_MARK_REQUIRED/i.test(m)) return 'Refresh market prices before placing a Market order. KAIROS will not execute against a stale mark.';
   if(/INSUFFICIENT_TRACKED_CASH|INSUFFICIENT_BUYING_POWER/i.test(m)) return 'Not enough simulated buying power for this order.';
   if(/SELL_EXCEEDS_POSITION|INSUFFICIENT_HOLDINGS_FOR_ORDER/i.test(m)) return 'That sell exceeds the shares currently available in Wallet Mirror.';
@@ -855,7 +858,7 @@ function renderEvolutionLab(){
   <div class="panel"><div class="section-title"><div><h3>Evolution History</h3><p>Promotion and rejection trail.</p></div></div><div class="timeline">${(e.history||[]).slice().reverse().slice(0,20).map(h=>`<div class="timeline-row"><span>${esc(String(h.at||'').slice(0,19).replace('T',' '))}</span><strong>${esc(h.event||'')}</strong><small>${h.improvement!=null?`Δ ${Number(h.improvement).toFixed(3)}`:esc(h.reason||'')}</small></div>`).join('')||'<div class="alert warn">No evolution cycles recorded yet.</div>'}</div></div></section>`;
 }
 function renderSettings(){
-  const must=state.auth?.mustChangeDefault, identityAuth=state.auth?.authProvider==='netlify_identity', prof=profileCompleteness(), market=state.providers?.market, openai=state.providers?.openai, anthropic=state.providers?.anthropic, gemini=state.providers?.gemini, gateway=state.providers?.aiGateway, pers=state.persistence||{};
+  const must=state.auth?.mustChangeDefault, identityAuth=state.auth?.authProvider==='netlify_identity', prof=profileCompleteness(), market=state.providers?.market, openai=state.providers?.openai, anthropic=state.providers?.anthropic, gemini=state.providers?.gemini, gateway=state.providers?.aiGateway, pers=state.persistence||{}, commercial=state.commercial||{}, usage=commercial.usage||{}, access=commercial.access||{};
   return `<section class="v7-screen v7-settings"><header class="v7-page-head"><div><div class="v7-kicker">PROFILE & SYSTEM</div><h1>Your financial twin, controls and trust layer.</h1><p>Customer-facing screens never receive infrastructure API keys. Provider credentials remain server-side.</p></div><button class="ghost-btn" id="researchOpenAdvisor">Ask KAIROS</button></header>
   ${must?`<div class="alert bad must-change-banner"><strong>Security action required:</strong> default credentials are active. Set a new password below before any shared use.</div>`:''}
   <div class="v7-settings-grid">
@@ -871,7 +874,9 @@ function renderSettings(){
 
     <section class="v7-card v7-span-2"><div class="v7-section-head"><div><span class="v7-kicker">MARKET INTELLIGENCE</span><h2>Price truth before interpretation</h2></div>${feedTrustBadge()}</div><label class="v7-toggle-row"><span><strong>Allow research fallback for missing market context</strong><small>Licensed/vendor marks are the only price authority. LLMs never invent prices.</small></span><input id="sAutoMarks" type="checkbox" ${state.settings.autoMarketMarks!==false?'checked':''}></label><button class="primary-btn" id="saveSystemSettingsBtn">Save system settings</button></section>
 
-    <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">WORKSPACE</span><h2>${esc(state.auth?.tenant?.name||'Kairos Workspace')}</h2></div></div><p class="report-text">Tenant-isolated paper workspace · ${esc(state.auth?.user?.role||'member')} access · ${esc(state.auth?.tenant?.plan||'private')} plan.</p><div class="tiny">Portfolio, paper orders, Decision History, mirrors and settings are isolated to this workspace.</div></section>
+    <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">WORKSPACE</span><h2>${esc(state.auth?.tenant?.name||'Kairos Workspace')}</h2></div></div><p class="report-text">Tenant-isolated paper workspace · ${esc(state.auth?.user?.role||'member')} access · ${esc(commercial.tenant?.plan||state.auth?.tenant?.plan||'private')} plan.</p><div class="tiny">Portfolio, paper orders, Decision History, mirrors and settings are isolated to this workspace.</div></section>
+
+    <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">SUBSCRIPTION & USAGE</span><h2>${esc(String(access.status||'active').replaceAll('_',' '))}</h2></div><span class="badge ${access.allowed!==false?'action':'abstain'}">${access.allowed!==false?'ACCESS ACTIVE':'ACTION REQUIRED'}</span></div><div class="v7-setting-rows"><div><span>Plan</span><strong>${esc(commercial.tenant?.plan||'private')}</strong></div><div><span>AI units · ${esc(usage.period||'current month')}</span><strong>${usage.limit==null?'UNLIMITED':`${Number(usage.used||0)} / ${Number(usage.limit||0)}`}</strong></div><div><span>Renewal / trial end</span><strong>${access.currentPeriodEnd?esc(String(access.currentPeriodEnd).slice(0,10)):'—'}</strong></div><div><span>Billing provider</span><strong>${commercial.billing?.provider==='stripe'?'STRIPE':commercial.tenant?.plan==='private'?'PRIVATE OWNER':'NOT LINKED'}</strong></div></div>${state.auth?.user?.role==='owner'&&commercial.tenant?.plan!=='private'?`<div class="action-row" style="margin-top:14px">${commercial.billing?.customerLinked?`<button class="primary-btn" id="billingPortalBtn">Manage billing</button>`:`<button class="primary-btn" id="billingCheckoutBtn">Start / activate subscription</button>`}<button class="ghost-btn" id="refreshCommercialBtn">Refresh status</button></div>`:''}<div class="tiny" style="margin-top:10px">AI units are internal cost-control units, not tokens or dollars. Replayed jobs with the same idempotency key do not consume twice.</div></section>
   </div></section>`;
 }
 
@@ -912,6 +917,9 @@ function wireScreen(){
   $('#exportBtn')?.addEventListener('click',exportBackup);
   $('#importBtn')?.addEventListener('click',importBackup);
   $('#saveSystemSettingsBtn')?.addEventListener('click',saveSystemSettings);
+  $('#billingCheckoutBtn')?.addEventListener('click',startBillingCheckout);
+  $('#billingPortalBtn')?.addEventListener('click',openBillingPortal);
+  $('#refreshCommercialBtn')?.addEventListener('click',async()=>{await loadState();nav('settings');toast('Subscription status refreshed.');});
   $('#researchOpenAdvisor')?.addEventListener('click',()=>openAdvisor('Insight')); $$('[data-insight-pane]').forEach(b=>b.onclick=()=>{insightPane=b.dataset.insightPane;render();});
   $('#discardEvolutionBtn')?.addEventListener('click',discardEvolution);
   const pickAssetFromBtn=(b)=>{
@@ -1253,6 +1261,18 @@ async function deleteTx(id){
     }
   });
 }
+
+async function startBillingCheckout(){
+  const btn=$('#billingCheckoutBtn'); loading(btn,true,'Opening Stripe');
+  try{ const r=await api('billing-checkout',{method:'POST',body:'{}'}); const u=safeHttpUrl(r.url); if(!u||!u.startsWith('https://checkout.stripe.com/')) throw new Error('Invalid Stripe Checkout URL.'); location.href=u; }
+  catch(e){toast(friendlyError(e.message||e)); loading(btn,false);}
+}
+async function openBillingPortal(){
+  const btn=$('#billingPortalBtn'); loading(btn,true,'Opening Stripe');
+  try{ const r=await api('billing-portal',{method:'POST',body:'{}'}); const u=safeHttpUrl(r.url); if(!u||!u.startsWith('https://billing.stripe.com/')) throw new Error('Invalid Stripe billing URL.'); location.href=u; }
+  catch(e){toast(friendlyError(e.message||e)); loading(btn,false);}
+}
+
 async function saveProfile(){const p={...state.profile,name:$('#sName').value.trim(),email:$('#sEmail').value.trim(),country:$('#sCountry').value.trim(),baseCurrency:$('#sCurrency').value,goal:$('#sGoal').value.trim(),targetAmount:Number($('#sTarget').value||0),horizon:$('#sHorizon').value,contributionAmount:Number($('#sContribution').value||0),experience:$('#sExperience').value,riskCapacity:$('#sRiskCapacity').value,maxDrawdownTolerance:Number($('#sDrawdown').value||0),liquidityNeed:$('#sLiquidity').value,emergencyReserveMonths:Number($('#sReserve').value||0),incomeStability:$('#sIncomeStability').value,taxResidency:$('#sTaxResidency').value.trim()};try{await api('account',{method:'POST',body:JSON.stringify({action:'saveProfile',profile:p})});await loadState();nav('settings');toast('Profile saved.')}catch(e){toast(e.message)}}
 async function saveRisk(riskStyle){try{await api('account',{method:'POST',body:JSON.stringify({action:'saveProfile',profile:{...state.profile,riskStyle}})});await loadState();nav('settings')}catch(e){toast(e.message)}}
 async function saveDisplay(displayMode){try{await api('account',{method:'POST',body:JSON.stringify({action:'saveSettings',settings:{...state.settings,displayMode}})});await loadState();nav('settings')}catch(e){toast(e.message)}}

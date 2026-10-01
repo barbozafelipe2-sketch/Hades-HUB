@@ -57,9 +57,13 @@ function commercialLegalConfig(){
   const privacyUrl=String(getEnv('KAIROS_PRIVACY_URL')||'').trim();
   const requested=String(getEnv('KAIROS_ALLOW_SIGNUPS')||'').toLowerCase()==='true';
   const launchGate=String(getEnv('KAIROS_PUBLIC_SIGNUP_READY')||'').toLowerCase()==='true';
+  const billingRequired=String(getEnv('KAIROS_REQUIRE_BILLING_FOR_SIGNUP','true')).toLowerCase()!=='false';
   const validHttps=(v)=>{ try{ const u=new URL(v); return u.protocol==='https:'; }catch{return false;} };
   const configured=!!(termsVersion&&riskVersion&&legalEntity&&validHttps(termsUrl)&&validHttps(riskUrl)&&validHttps(privacyUrl));
-  return {termsVersion,riskVersion,legalEntity,termsUrl,riskUrl,privacyUrl,signupRequested:requested,signupAllowed:requested&&configured&&launchGate,configured,launchGate};
+  const billingAppUrl=String(getEnv('KAIROS_APP_URL')||'').trim();
+  const billingConfigured=!!(String(getEnv('STRIPE_SECRET_KEY')||'').trim()&&String(getEnv('STRIPE_WEBHOOK_SECRET')||'').trim()&&/^price_[A-Za-z0-9]+$/.test(String(getEnv('KAIROS_STRIPE_PRO_PRICE_ID')||'').trim())&&validHttps(billingAppUrl));
+  const signupAllowed=requested&&configured&&launchGate&&(!billingRequired||billingConfigured);
+  return {termsVersion,riskVersion,legalEntity,termsUrl,riskUrl,privacyUrl,signupRequested:requested,signupAllowed,configured,launchGate,billingRequired,billingConfigured};
 }
 
 async function getUserRecord(id){ return id?await getSystemJSON(userKey(id),null):null; }
@@ -357,7 +361,7 @@ export async function confirmCommercialEmail(req,token){
 
 export async function createCommercialAccount(req,{email,password,fullName,acceptedTermsVersion,acceptedRiskDisclosure}){
   const legal=commercialLegalConfig();
-  if(!legal.signupAllowed) throw new Error(legal.signupRequested?(legal.launchGate?'COMMERCIAL_LEGAL_CONFIG_REQUIRED':'PUBLIC_SIGNUP_NOT_RELEASED'):'SIGNUPS_DISABLED');
+  if(!legal.signupAllowed){ if(!legal.signupRequested) throw new Error('SIGNUPS_DISABLED'); if(!legal.launchGate) throw new Error('PUBLIC_SIGNUP_NOT_RELEASED'); if(!legal.configured) throw new Error('COMMERCIAL_LEGAL_CONFIG_REQUIRED'); if(legal.billingRequired&&!legal.billingConfigured) throw new Error('COMMERCIAL_BILLING_CONFIG_REQUIRED'); throw new Error('SIGNUPS_DISABLED'); }
   if(!getIdentityConfig()) throw new Error('IDENTITY_NOT_CONFIGURED');
   await bootstrapCommercialAuth();
   const clean=cleanEmail(email); if(String(password||'').length<12) throw new Error('PASSWORD_TOO_SHORT');
@@ -403,5 +407,5 @@ export async function listActiveTenants(){ await bootstrapCommercialAuth(); cons
 export async function publicAuthState(session=null){
   const legal=commercialLegalConfig(); const identityConfigured=!!getIdentityConfig(); let user=null,tenant=null;
   if(session?.userId){ user=await getUserRecord(session.userId); tenant=await getTenant(session.tenantId); }
-  return {mode:'commercial_multi_tenant',authProvider:session?.authProvider||null,user:user?{id:user.id,username:user.username,email:user.email||'',role:user.role||'member'}:null,tenant:tenant?{id:tenant.id,name:tenant.name,plan:tenant.plan||'private',status:tenant.status}:null,username:user?.username||null,mustChangeDefault:!!user?.mustChangeDefault,sessionMaxAgeHours:Math.round((SESSION_MAX_AGE_MS/3600000)*10)/10,signupAllowed:legal.signupAllowed&&identityConfigured,identityConfigured,legalEntity:legal.legalEntity||null,termsVersion:legal.termsVersion||null,riskDisclosureVersion:legal.riskVersion||null,termsUrl:legal.termsUrl||null,riskDisclosureUrl:legal.riskUrl||null,privacyUrl:legal.privacyUrl||null,persistence:persistenceStatus(),tenantContext:currentTenantContext()?true:false,legacyAuthEnabled:legacyAuthEnabled()};
+  return {mode:'commercial_multi_tenant',authProvider:session?.authProvider||null,user:user?{id:user.id,username:user.username,email:user.email||'',role:user.role||'member'}:null,tenant:tenant?{id:tenant.id,name:tenant.name,plan:tenant.plan||'private',status:tenant.status}:null,username:user?.username||null,mustChangeDefault:!!user?.mustChangeDefault,sessionMaxAgeHours:Math.round((SESSION_MAX_AGE_MS/3600000)*10)/10,signupAllowed:legal.signupAllowed&&identityConfigured,identityConfigured,billingReady:legal.billingConfigured,billingRequired:legal.billingRequired,legalEntity:legal.legalEntity||null,termsVersion:legal.termsVersion||null,riskDisclosureVersion:legal.riskVersion||null,termsUrl:legal.termsUrl||null,riskDisclosureUrl:legal.riskUrl||null,privacyUrl:legal.privacyUrl||null,persistence:persistenceStatus(),tenantContext:currentTenantContext()?true:false,legacyAuthEnabled:legacyAuthEnabled()};
 }

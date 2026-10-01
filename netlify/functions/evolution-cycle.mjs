@@ -6,10 +6,11 @@ import { normalizeJobId, declaredBodyTooLarge } from '../lib/input.mjs';
 import { getEnv } from '../lib/env.mjs';
 import { beginOperationalTrace } from '../lib/ops-trace.mjs';
 import { consumeWorkflowBudget } from '../lib/workflow-limit.mjs';
+import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
-  if(!(await requireSession(req))) return json({error:'UNAUTHORIZED'},401);
+  const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
   if(declaredBodyTooLarge(req,8000)) return json({error:'PAYLOAD_TOO_LARGE'},413);
   const body=await readJSON(req);
@@ -21,6 +22,8 @@ export default async (req,context)=>{
   if(prior?.status==='RUNNING' && Date.now()-Date.parse(prior.startedAt||0)<14*60*1000){ await op.finish({status:'SKIPPED_ALREADY_RUNNING',jobId:job}); return; }
   try{ await consumeWorkflowBudget('evolution-cycle',{limit:2,windowMs:1800000,jobId:job}); }
   catch(e){ try{await setJSON(jobKey,{id:job,status:'ERROR',error:'WORKFLOW_RATE_LIMITED',retryAfterMs:Number(e?.retryAfterMs)||null,finishedAt:new Date().toISOString()});}catch{} await op.finish({status:'RATE_LIMITED',error:e,jobId:job}); return; }
+  try{ await assertCommercialAccess(session,{feature:'learning-lab',consumeUnits:true,idempotencyKey:`learning-lab:${job}`}); }
+  catch(e){ const ce=commercialErrorJSON(e); if(ce){ try{await setJSON(jobKey,{id:job,status:'ERROR',error:ce.body.error,commercial:ce.body,finishedAt:new Date().toISOString()});}catch{} await op.finish({status:'COMMERCIAL_BLOCKED',resultStatus:ce.body.error,jobId:job}); return; } throw e; }
   await pruneJSONCollection('jobs/evolution/',{maxEntries:120}).catch(()=>{});
   const started=Date.now();
   const totalBudgetMs=Math.max(30000,Math.min(120000,Number(getEnv('HADES_EVOLUTION_TOTAL_BUDGET_MS','90000'))));

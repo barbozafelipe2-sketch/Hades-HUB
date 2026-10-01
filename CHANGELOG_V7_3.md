@@ -62,3 +62,13 @@
 - GitHub CI no longer fakes a Netlify runtime for distributed Blob-lock tests; it verifies the conditional-write protocol structurally and leaves runtime execution to Deploy Preview.
 
 - Final-fix preview isolation coverage now validates deploy/site routing without performing Netlify Blob I/O inside GitHub Actions; real Blob isolation remains a Deploy Preview integration gate.
+
+
+## Commercial Hard Fix 2/3
+- Added server-side Stripe Checkout and Billing Portal session creation; no Stripe secret is exposed to the client.
+- Added raw-body Stripe webhook verification, timestamp tolerance, replay protection, stale-event rejection and active-subscription conflict protection.
+- Added tenant-scoped trial/pro/private entitlements. Expired/unpaid tenants retain read/export access while paid mutations and AI workflows fail closed.
+- Added Postgres-backed monthly AI-unit accounting with per-plan limits, per-feature weights and request/job idempotency.
+- Added relational, allowlisted audit events for authentication, billing, account changes, paper activity and backup restore outcomes.
+- Added owner-only commercial status, audit-log and sanitized support-diagnostics endpoints.
+- Public signup now requires Stripe billing readiness by default in addition to Identity/legal release gates; private beta can explicitly opt out.

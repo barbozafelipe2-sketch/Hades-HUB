@@ -12,6 +12,7 @@ import { deriveDecisionConviction } from '../lib/decision-confidence.mjs';
 import { normalizeJobId, normalizeSymbolInput, declaredBodyTooLarge } from '../lib/input.mjs';
 import { beginOperationalTrace } from '../lib/ops-trace.mjs';
 import { consumeWorkflowBudget } from '../lib/workflow-limit.mjs';
+import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 
 async function jcall(prompt,{web=false,reasoning='medium',model,role='primary'}={}){
   const r=await callJSONWithFailover({role,prompt,web,reasoning,model});
@@ -22,7 +23,7 @@ async function jcall(prompt,{web=false,reasoning='medium',model,role='primary'}=
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
-  if(!(await requireSession(req))) return json({error:'UNAUTHORIZED'},401);
+  const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
   if(declaredBodyTooLarge(req,16000)) return json({error:'PAYLOAD_TOO_LARGE'},413);
   const {asset,forceRefresh=false,jobId}=await readJSON(req);
@@ -36,6 +37,8 @@ export default async (req,context)=>{
   if(priorJob?.status==='RUNNING' && Date.now()-Date.parse(priorJob.startedAt||0)<14*60*1000){ await op.finish({status:'SKIPPED_ALREADY_RUNNING',jobId:job,asset:symbol}); return; }
   try{ await consumeWorkflowBudget('decision-attack',{limit:3,windowMs:600000,jobId:job}); }
   catch(e){ try{await setJSON(jobKey,{id:job,status:'ERROR',error:'WORKFLOW_RATE_LIMITED',retryAfterMs:Number(e?.retryAfterMs)||null,finishedAt:new Date().toISOString()});}catch{} await op.finish({status:'RATE_LIMITED',error:e,jobId:job}); return; }
+  try{ await assertCommercialAccess(session,{feature:'decision-review',consumeUnits:true,idempotencyKey:`decision-review:${job}`}); }
+  catch(e){ const ce=commercialErrorJSON(e); if(ce){ try{await setJSON(jobKey,{id:job,status:'ERROR',error:ce.body.error,commercial:ce.body,finishedAt:new Date().toISOString()});}catch{} await op.finish({status:'COMMERCIAL_BLOCKED',resultStatus:ce.body.error,jobId:job}); return; } throw e; }
   await pruneJSONCollection('jobs/decision/',{maxEntries:120}).catch(()=>{});
   await setJSON(jobKey,{id:job,status:'RUNNING',asset:symbol,startedAt:new Date().toISOString(),idempotencyKey:job});
   try{

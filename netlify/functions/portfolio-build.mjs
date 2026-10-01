@@ -2,11 +2,13 @@ import { requireSession } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { buildPaperWalletFromAllocation, formatBuildSummaryText } from '../lib/portfolio-build.mjs';
 import { configurePersistenceForRequest } from '../lib/store.mjs';
+import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
-  if(!(await requireSession(req))) return json({error:'UNAUTHORIZED'},401);
+  const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
+  try{ await assertCommercialAccess(session); }catch(e){ const ce=commercialErrorJSON(e); if(ce)return json(ce.body,ce.status); throw e; }
   const body=await readJSON(req);
   const action=String(body.action||'buildFromMirror');
   try{

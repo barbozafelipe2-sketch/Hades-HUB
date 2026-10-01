@@ -3,15 +3,17 @@ import { json, readJSON } from '../lib/http.mjs';
 import { getTransactions, saveTransactions, getMarks, saveMarks, getPortfolio, getPaperOrders, getWatchlist, saveWatchlist } from '../lib/state.mjs';
 import { normalizeTransaction, derivePortfolio, normalizeSymbol } from '../lib/portfolio.mjs';
 import { withKeyLock, configurePersistenceForRequest } from '../lib/store.mjs';
+import { assertCommercialAccess, commercialErrorJSON, auditCommercialEvent } from '../lib/commercial-control.mjs';
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
-  if(!(await requireSession(req))) return json({error:'UNAUTHORIZED'},401);
+  const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method==='GET') {
     const [portfolio,orders,watchlist]=await Promise.all([getPortfolio(),getPaperOrders(),getWatchlist()]);
     return json({...portfolio,orders,watchlist});
   }
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
+  try{ await assertCommercialAccess(session); }catch(e){ const ce=commercialErrorJSON(e); if(ce)return json(ce.body,ce.status); throw e; }
   const body=await readJSON(req);
   try{
     if(body.action==='addTransaction'){
@@ -23,6 +25,7 @@ export default async (req,context)=>{
         if(tx.type==='SELL' && after.warnings.length>before.warnings.length) return json({error:'SELL_EXCEEDS_POSITION'},400);
         if(tx.type==='BUY' && after.cash < -0.01 && !body.allowNegativeCash) return json({error:'INSUFFICIENT_TRACKED_CASH','message':'Add a deposit first or explicitly allow negative cash.'},400);
         await saveTransactions(candidate);
+        await auditCommercialEvent(session,'paper.transaction_added',{requestId:context?.requestId,details:{action:tx.type,feature:'paper-ledger'}}).catch(()=>{});
         return json({ok:true,transaction:tx,portfolio:after});
       });
     }
@@ -30,7 +33,7 @@ export default async (req,context)=>{
       return await withKeyLock('portfolio-ledger',async()=>{
         const [txs,marks]=await Promise.all([getTransactions(),getMarks()]);
         const next=txs.filter(t=>t.id!==body.id); if(next.length===txs.length) return json({error:'TRANSACTION_NOT_FOUND'},404);
-        await saveTransactions(next); return json({ok:true,portfolio:derivePortfolio(next,marks)});
+        await saveTransactions(next); await auditCommercialEvent(session,'paper.transaction_deleted',{requestId:context?.requestId,details:{action:'delete',feature:'paper-ledger'}}).catch(()=>{}); return json({ok:true,portfolio:derivePortfolio(next,marks)});
       });
     }
     if(body.action==='placeOrder'){
@@ -38,27 +41,29 @@ export default async (req,context)=>{
       const orderType=String(body.order?.orderType||'MARKET').toUpperCase().replace(/\s+/g,'_');
       if(orderType==='MARKET'){
         const r=await executeMarketPaperOrder(body.order||{});
+        await auditCommercialEvent(session,'paper.order_filled',{requestId:context?.requestId,details:{action:String(body.order?.side||'').toUpperCase(),feature:'paper-order'}}).catch(()=>{});
         return json({ok:true,...r});
       }
       const order=await placePendingPaperOrder(body.order||{});
+      await auditCommercialEvent(session,'paper.order_opened',{requestId:context?.requestId,details:{action:order?.side||null,feature:'paper-order'}}).catch(()=>{});
       return json({ok:true,order});
     }
     if(body.action==='cancelOrder'){
       const { cancelPaperOrder } = await import('../lib/paper-orders.mjs');
-      return json({ok:true,order:await cancelPaperOrder(body.id)});
+      const order=await cancelPaperOrder(body.id); await auditCommercialEvent(session,'paper.order_cancelled',{requestId:context?.requestId,details:{action:'cancel',feature:'paper-order'}}).catch(()=>{}); return json({ok:true,order});
     }
     if(body.action==='processOrders'){
       const { processPendingPaperOrders } = await import('../lib/paper-orders.mjs');
       return json({ok:true,...await processPendingPaperOrders()});
     }
     if(body.action==='setWatchlist'){
-      return await withKeyLock('watchlist',async()=>json({ok:true,watchlist:await saveWatchlist(body.symbols||[])}));
+      return await withKeyLock('watchlist',async()=>{ const watchlist=await saveWatchlist(body.symbols||[]); await auditCommercialEvent(session,'watchlist.updated',{requestId:context?.requestId,details:{action:'set'}}).catch(()=>{}); return json({ok:true,watchlist}); });
     }
     if(body.action==='toggleWatchlist'){
       let symbol; try{ symbol=normalizeSymbol(body.symbol); }catch(e){ return json({error:String(e.message||e)},400); } if(!symbol) return json({error:'SYMBOL_REQUIRED'},400);
       return await withKeyLock('watchlist',async()=>{
         const list=await getWatchlist(); const next=list.includes(symbol)?list.filter(x=>x!==symbol):[...list,symbol];
-        return json({ok:true,watchlist:await saveWatchlist(next)});
+        const watchlist=await saveWatchlist(next); await auditCommercialEvent(session,'watchlist.updated',{requestId:context?.requestId,details:{action:'toggle'}}).catch(()=>{}); return json({ok:true,watchlist});
       });
     }
     if(body.action==='setMark'){
@@ -67,7 +72,7 @@ export default async (req,context)=>{
       return await withKeyLock('portfolio-ledger',async()=>{
         const [txs,marks]=await Promise.all([getTransactions(),getMarks()]);
         marks[symbol]={price,source:'manual',asOf:new Date().toISOString(),confidence:'user-entered'};
-        await saveMarks(marks); return json({ok:true,marks,portfolio:derivePortfolio(txs,marks)});
+        await saveMarks(marks); await auditCommercialEvent(session,'paper.manual_mark_set',{requestId:context?.requestId,details:{action:'setMark'}}).catch(()=>{}); return json({ok:true,marks,portfolio:derivePortfolio(txs,marks)});
       });
     }
     if(body.action==='buildFromMirror' || body.action==='buildFromBudget'){

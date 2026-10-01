@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "check": "node scripts/check-syntax.mjs",
-    "test": "node test/router-v2.test.mjs && node test/hardening-v7-2.test.mjs && node test/hard-fix-1.test.mjs && node test/hard-fix-2.test.mjs && node test/hard-fix-3.test.mjs && node test/final-fix.test.mjs && node test/polish-v7-3.test.mjs && node test/kairos-rebrand.test.mjs && node test/commercial-hard-fix-1.test.mjs && node qa_portfolio_test.mjs && node qa_hardening_v4_2.mjs && node qa_v4_2.mjs && node qa_endpoints_v4_2.mjs && node qa_v6_1.mjs && node qa_v7.mjs",
+    "test": "node test/router-v2.test.mjs && node test/hardening-v7-2.test.mjs && node test/hard-fix-1.test.mjs && node test/hard-fix-2.test.mjs && node test/hard-fix-3.test.mjs && node test/final-fix.test.mjs && node test/polish-v7-3.test.mjs && node test/kairos-rebrand.test.mjs && node test/commercial-hard-fix-1.test.mjs && node test/commercial-hard-fix-2.test.mjs && node qa_portfolio_test.mjs && node qa_hardening_v4_2.mjs && node qa_v4_2.mjs && node qa_endpoints_v4_2.mjs && node qa_v6_1.mjs && node qa_v7.mjs",
     "integrity": "sha256sum -c SOURCE_MANIFEST.sha256",
     "verify": "npm run check && npm test && npm run integrity"
   },

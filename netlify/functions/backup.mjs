@@ -10,6 +10,7 @@ import {
 import { getJSON, setJSON, listKeys, deleteKey, withKeyLock, pruneJSONCollection, configurePersistenceForRequest } from '../lib/store.mjs';
 import { derivePortfolio, normalizeSymbol, validateTransactionLedger } from '../lib/portfolio.mjs';
 import { normalizeSymbolList } from '../lib/input.mjs';
+import { auditCommercialEvent } from '../lib/commercial-control.mjs';
 
 const MAX_RESTORE_BYTES=5*1024*1024;
 const SAFE_ID=/^[A-Za-z0-9._:-]{1,160}$/;
@@ -142,11 +143,13 @@ export default async (req,context)=>{
       await deleteKey(stagingKey).catch(()=>{});
       await pruneJSONCollection('restore/snapshots/',{maxEntries:5,minIntervalMs:0,timestampFields:['exportedAt']}).catch(()=>{});
       await pruneJSONCollection('restore/status/',{maxEntries:20,minIntervalMs:0,timestampFields:['finishedAt','startedAt']}).catch(()=>{});
+      await auditCommercialEvent(session,'backup.restore_completed',{requestId:context?.requestId,details:{action:'restore',result:'complete'}}).catch(()=>{});
       return json({ok:true,restoreId,recoverySnapshotKey:snapshotKey,version:5});
     }catch(e){
       let rollbackSucceeded=false; let rollbackError=null;
       if(previous){ try{ await applyNormalizedBackup(previous); rollbackSucceeded=true; }catch(rb){ rollbackError=String(rb?.message||rb); } }
       try{ await setJSON(statusKey,{restoreId,status:'FAILED',finishedAt:new Date().toISOString(),error:String(e?.message||e),rollbackSucceeded,rollbackError,snapshotKey}); }catch{}
+      await auditCommercialEvent(session,'backup.restore_failed',{requestId:context?.requestId,details:{action:'restore',result:rollbackSucceeded?'rolled_back':'failed'}}).catch(()=>{});
       return json({error:'BACKUP_RESTORE_FAILED',detail:String(e?.message||e),restoreId,rollbackSucceeded,rollbackError,recoverySnapshotKey:previous?snapshotKey:null},500);
     }
   },{ttlMs:120000,waitMs:10000});

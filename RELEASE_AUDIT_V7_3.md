@@ -32,3 +32,17 @@ Do not promote directly from the local ZIP. The intended release chain is:
 
 ## Polish pass
 The release-polish pass is intentionally non-architectural: visual hierarchy and approved layout are unchanged. User-facing version labels, manual-price trust language, market-refresh language, accessibility semantics, keyboard dismissal and release-facing documentation were normalized before the final Git handoff.
+
+## Commercial Hard Fix 2/3 verification
+
+Hard Fix 2/3 adds paid-web operational controls without changing the paper-only execution boundary:
+
+- Stripe Checkout/Portal sessions are server-created.
+- Stripe subscription state is accepted only through a verified raw-body webhook signature; duplicate and older events cannot roll entitlement state backward.
+- Trial/pro/private entitlements fail closed on paid mutations while preserving workspace read/export access.
+- Monthly per-tenant AI-unit consumption is transactional/idempotent in Postgres and rate-limit guards run before paid-unit consumption on background AI jobs.
+- Authentication, billing, paper mutations, account changes and backup restore outcomes emit allowlisted relational audit events.
+- Owner support diagnostics are sanitized and exclude secrets, raw prompts and position-level financial data.
+- Public signup requires billing readiness by default in addition to the Hard Fix 1 Identity/legal gates.
+
+Local full regression passed with temporary QA-only Netlify adapters. Those adapters are not shipping files. The authoritative hosted gate remains GitHub Actions on Node 24 with a real `npm ci --ignore-scripts && npm run verify`, followed by Netlify Deploy Preview integration before production promotion.
