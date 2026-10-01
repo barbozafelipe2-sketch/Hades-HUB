@@ -1,13 +1,8 @@
 import crypto from 'node:crypto';
 import {
-  getUser as getIdentityUser,
-  getIdentityConfig,
-  login as identityLogin,
-  signup as identitySignup,
-  confirmEmail as identityConfirmEmail,
-  logout as identityLogout,
-  verifyRequestOrigin,
-} from '@netlify/identity';
+  getIdentityUser, getIdentityConfig, identityLogin, identitySignup, identityConfirmEmail, identityLogout,
+  verifyIdentityRequestOrigin,
+} from './identity-provider.mjs';
 import {
   getSystemJSON,setSystemJSON,deleteSystemKey,getLegacyGlobalJSON,listLegacyGlobalKeys,setTenantJSONForMigration,
   withSystemKeyLock,persistenceStatus,configureTenantForRequest,currentTenantContext
@@ -259,7 +254,7 @@ async function authenticateLegacyCredentials(identifier,password){
 }
 
 export async function loginPrincipal(req,identifier,password){
-  if(isNetlifyRuntime()) verifyRequestOrigin(req);
+  if(isNetlifyRuntime()) verifyIdentityRequestOrigin(req);
   const normalized=normalizeIdentifier(identifier);
   let identityError=null;
   if(normalized.includes('@') && getIdentityConfig()){
@@ -322,7 +317,7 @@ export async function requireSession(req){
 export function sessionCookie(token){return `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.floor(SESSION_MAX_AGE_MS/1000)}`}
 export function clearSessionCookie(){return `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`}
 export async function logoutIdentitySession(req){
-  if(isNetlifyRuntime()) verifyRequestOrigin(req);
+  if(isNetlifyRuntime()) verifyIdentityRequestOrigin(req);
   try{ if(getIdentityConfig()) await identityLogout(); }catch(e){ if(Number(e?.status||0)===403) throw e; }
 }
 
@@ -353,7 +348,7 @@ export async function confirmCommercialEmail(req,token){
   const cleanToken=String(token||'').trim();
   if(cleanToken.length<16 || cleanToken.length>4096) throw new Error('CONFIRMATION_TOKEN_INVALID');
   if(!getIdentityConfig()) throw new Error('IDENTITY_NOT_CONFIGURED');
-  if(isNetlifyRuntime()) verifyRequestOrigin(req);
+  if(isNetlifyRuntime()) verifyIdentityRequestOrigin(req);
   const identityUser=await identityConfirmEmail(cleanToken);
   const principal=await principalFromIdentity(identityUser,{allowBootstrapLink:true});
   if(!principal) throw new Error('TENANT_PROVISIONING_FAILED');
@@ -367,7 +362,7 @@ export async function createCommercialAccount(req,{email,password,fullName,accep
   await bootstrapCommercialAuth();
   const clean=cleanEmail(email); if(String(password||'').length<12) throw new Error('PASSWORD_TOO_SHORT');
   if(acceptedTermsVersion!==legal.termsVersion||acceptedRiskDisclosure!==true) throw new Error('TERMS_ACCEPTANCE_REQUIRED');
-  if(isNetlifyRuntime()) verifyRequestOrigin(req);
+  if(isNetlifyRuntime()) verifyIdentityRequestOrigin(req);
   return await withSystemKeyLock(`signup-email:${digest(clean).slice(0,24)}`,async()=>{
     if(await getSystemJSON(loginKey(clean),null)) throw new Error('ACCOUNT_EXISTS');
     const pkey=pendingSignupKey(clean);

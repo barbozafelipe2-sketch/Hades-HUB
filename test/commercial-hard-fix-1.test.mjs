@@ -6,7 +6,7 @@ process.env.SAURON_ADMIN_PASSWORD='admin123';
 process.env.KAIROS_ADMIN_EMAIL='owner@example.com';
 process.env.KAIROS_LEGACY_AUTH_ENABLED='true';
 const store=await import('../netlify/lib/store.mjs');
-const identity=await import('@netlify/identity');
+const identityProvider=await import('../netlify/lib/identity-provider.mjs');
 const auth=await import('../netlify/lib/auth.mjs');
 
 store.configurePersistenceForRequest({});
@@ -57,8 +57,37 @@ const legacySession=await auth.requireSession(legacyReq);
 assert.equal(legacySession?.tenantId,owner.tenantId);
 assert.equal(legacySession?.authProvider,'legacy');
 
-const qa=identity.__qaIdentity();
-qa.configured=true;
+const qa={configured:true,autoconfirm:true,user:null,users:new Map(),tokens:new Map(),counter:0};
+const identityError=(message,status)=>Object.assign(new Error(message),{status});
+identityProvider.setIdentityAdapterForTests({
+  getIdentityConfig:()=>qa.configured?{siteUrl:'https://local'}:null,
+  getUser:async()=>qa.user,
+  login:async(email,password)=>{
+    const row=qa.users.get(String(email||'').toLowerCase());
+    if(!row || row.password!==String(password||'')) throw identityError('Invalid login credentials',401);
+    if(row.user.emailVerified!==true) throw identityError('Email not confirmed',401);
+    qa.user={...row.user}; return qa.user;
+  },
+  signup:async(email,password,metadata={})=>{
+    const clean=String(email||'').toLowerCase();
+    if(qa.users.has(clean)) throw identityError('User already registered',422);
+    const id=`identity-${++qa.counter}`;
+    const confirmationToken=`qa-confirmation-token-${id}-0123456789`;
+    const user={id,email:clean,emailVerified:qa.autoconfirm===true,roles:['member'],user_metadata:{...metadata}};
+    qa.users.set(clean,{password:String(password||''),confirmationToken,user});
+    qa.tokens.set(confirmationToken,clean);
+    if(user.emailVerified) qa.user={...user};
+    return {...user};
+  },
+  confirmEmail:async(token)=>{
+    const clean=qa.tokens.get(String(token||''));
+    const row=clean?qa.users.get(clean):null;
+    if(!row) throw identityError('Invalid confirmation token',400);
+    row.user={...row.user,emailVerified:true}; qa.user={...row.user}; return {...row.user};
+  },
+  logout:async()=>{ qa.user=null; },
+  verifyRequestOrigin:()=>true,
+});
 qa.user={id:'identity-owner',email:'owner@example.com',emailVerified:true,roles:['owner']};
 store.configurePersistenceForRequest({});
 const identitySession=await auth.requireSession(new Request('https://local/.netlify/functions/auth-session'));
@@ -146,7 +175,10 @@ assert.ok(index.includes('PAPER SIMULATION · NO REAL ORDERS'));
 assert.ok(index.includes('KAIROS RESEARCH'));
 assert.ok(!index.includes('PRIVATE ADVISOR'));
 const authLib=fs.readFileSync(new URL('../netlify/lib/auth.mjs',import.meta.url),'utf8');
-assert.ok(authLib.includes("from '@netlify/identity'"));
+assert.ok(authLib.includes("from './identity-provider.mjs'"));
+const identityProviderSrc=fs.readFileSync(new URL('../netlify/lib/identity-provider.mjs',import.meta.url),'utf8');
+assert.ok(identityProviderSrc.includes("from '@netlify/identity'"));
+assert.ok(identityProviderSrc.includes('IDENTITY_TEST_ADAPTER_FORBIDDEN'));
 assert.ok(authLib.includes('PUBLIC_SIGNUP_NOT_RELEASED'));
 assert.ok(authLib.includes('commercial_multi_tenant'));
 assert.ok(authLib.includes('migrateLegacyTenantData'));
@@ -168,4 +200,5 @@ assert.ok(backupSrc.includes("requireRole(session,['owner','admin'])"),'backup r
 const healthSrc=fs.readFileSync(new URL('../netlify/functions/provider-health.mjs',import.meta.url),'utf8');
 assert.ok(!healthSrc.includes('final CROWN gate'));
 assert.equal(pkg.dependencies['@netlify/identity'],'2.0.0');
+identityProvider.resetIdentityAdapterForTests();
 console.log(JSON.stringify({ok:true,tests:['legacy state migration with source preservation','tenant isolation','legacy session binding','Netlify Identity owner linking','Identity-backed concurrent signup','unverified signup waits for email confirmation','partial signup self-repair','overlapping async tenant isolation','Postgres transactional authority scaffold','paper/research disclosure']},null,2));

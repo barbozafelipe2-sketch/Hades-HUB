@@ -28,6 +28,7 @@
 - Backup restore is validate-first with a recovery snapshot and automatic rollback attempt.
 
 ## Release engineering
+- Netlify Identity is isolated behind a KAIROS provider adapter so commercial auth flows can be unit-tested without a hosted Identity runtime; hosted Netlify execution cannot replace the official SDK adapter.
 - Node 24 aligned across package, CI and Netlify.
 - `package-lock.json` committed; `@netlify/blobs` pinned to 11.0.3.
 - Release identity normalized to 7.3.0.
