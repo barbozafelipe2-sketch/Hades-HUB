@@ -27,6 +27,8 @@ assert.equal(a.period.snapshotCount,3);
 assert.equal(a.decision.maturedActionableDecisions,2);
 assert.equal(a.decision.noActionObservations,1);
 assert.equal(a.decision.excludedNonPointInTimeOutcomes,1);
+assert.equal(a.monthly[0].status,'BUILDING','monthly return stays hidden before the existing evidence thresholds');
+assert.equal(a.monthly[0].relativeToSpy,null);
 const seven=a.decision.checkpointStats.find(x=>x.days===7);
 assert.equal(seven.observations,2);
 assert.equal(seven.directionalHitRate,1);
@@ -44,6 +46,20 @@ const d=buildTrackRecord({snapshots:noSpy,decisions,generatedAt:'2026-02-01T00:0
 assert.equal(d.performance.spyReturn,null);
 assert.equal(d.performance.relativeToSpy,null,'missing SPY evidence must never be coerced to a 0% benchmark');
 
+const monthSnapshots=[];
+for(let i=0;i<36;i++){
+  const date=new Date(Date.UTC(2026,0,1+i)).toISOString().slice(0,10);
+  monthSnapshots.push({date,portfolioValue:10000*(1+i*.001),netExternalFlow:0,spyPrice:500*(1+i*.0005),completeMarks:true,markIntegrity:'complete'});
+}
+const matureDecisions=Array.from({length:10},(_,i)=>({id:`mature-${i}`,date:'2026-01-02',asset:'AAPL',final:{status:'ADD'},outcomes:[{checkpointDays:7,targetDate:'2026-01-09',asOf:'2026-01-09',returnSinceDecision:0.01,directionalCorrect:true,priceSource:'licensed',pointInTime:true}]}));
+const monthlyReady=buildTrackRecord({snapshots:monthSnapshots,decisions:matureDecisions});
+assert.equal(monthlyReady.evidenceState,'RECORDED');
+assert.equal(monthlyReady.monthly.length,2);
+assert.equal(monthlyReady.monthly[0].status,'RECORDED');
+assert.notEqual(monthlyReady.monthly[0].relativeToSpy,null,'monthly relative return uses recorded portfolio and SPY evidence');
+assert.equal(monthlyReady.monthly[0].decisionCount,10);
+assert.equal(monthlyReady.monthly[0].maturedActionableDecisions,10);
+
 const endpoint=fs.readFileSync(new URL('../netlify/functions/track-record.mjs',import.meta.url),'utf8');
 assert.match(endpoint,/requireSession/);
 assert.match(endpoint,/buildTrackRecord/);
@@ -51,5 +67,7 @@ const app=fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
 assert.match(app,/Track Record Ledger/);
 assert.match(app,/not an external audit/i);
 assert.match(app,/exportTrackRecordBtn/);
-assert.match(app,/Paper relative to SPY/);
+assert.match(app,/Relative return vs SPY/);
+assert.match(app,/MONTH BY MONTH/);
+assert.match(app,/Follow-through is not measured yet/);
 console.log('commercial-hard-fix-3: PASS');

@@ -11,7 +11,7 @@ assert.match(html,/id="chatMessages"[^>]*aria-live="polite"/);
 assert.match(html,/id="advisorCloseBtn"[^>]*aria-label=/);
 assert.match(html,/id="systemCloseBtn"[^>]*aria-label=/);
 assert.match(html,/id="userAvatar"[^>]*role="button"[^>]*tabindex="0"/);
-assert.match(app,/meta\.textContent=`PAPER BROKER · V7\.3 ·/);
+assert.match(app,/meta\.textContent=`DECISION JOURNAL · V7\.3 ·/);
 assert.doesNotMatch(app,/meta\.textContent=`V7\.2 ·/);
 assert.match(app,/Manual display price/);
 assert.match(app,/never qualify as verified automatic-execution or Decision Review evidence/);

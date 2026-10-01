@@ -1,11 +1,11 @@
 {
-  "name": "KAIROS Paper Broker",
+  "name": "KAIROS Decision Journal",
   "short_name": "KAIROS",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#020305",
   "theme_color": "#020305",
-  "description": "KAIROS paper-broker and decision-intelligence workspace \u2014 simulated orders, verified market data, portfolio mirrors, decisions, performance, and research history.",
+  "description": "KAIROS auditable decision journal with adversarial review, paper execution, and recorded outcomes.",
   "icons": [
     {
       "src": "/kairos-icon-192.png?v=7.3.0",

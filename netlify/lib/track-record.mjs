@@ -80,6 +80,24 @@ function decisionMetrics(rows=[]){
   };
 }
 
+function monthlyEvidence(snapshots=[],decisions=[],recorded=false){
+  const byMonth=new Map();
+  for(const row of snapshots){ if(!row.date) continue; const month=row.date.slice(0,7); if(!byMonth.has(month))byMonth.set(month,[]); byMonth.get(month).push(row); }
+  const decisionsByMonth=new Map();
+  for(const d of decisions){ const month=d.date?.slice(0,7); if(!month)continue; if(!decisionsByMonth.has(month))decisionsByMonth.set(month,[]); decisionsByMonth.get(month).push(d); }
+  return [...byMonth.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([month,rows])=>{
+    const perf=performanceFromSnapshots(rows);
+    const monthlyDecisions=decisionsByMonth.get(month)||[];
+    const completeSnapshotCount=rows.filter(x=>x.completeMarks&&x.markIntegrity!=='stale_or_incomplete').length;
+    const valid=recorded&&perf.ready&&completeSnapshotCount===rows.length&&perf.benchmarkReturn!=null;
+    return {month,startDate:rows[0]?.date||null,endDate:rows.at(-1)?.date||null,snapshotCount:rows.length,completeSnapshotCount,
+      decisionCount:monthlyDecisions.length,actionableDecisions:monthlyDecisions.filter(d=>ACTIONABLE_STATUSES.has(d.status)).length,
+      maturedActionableDecisions:monthlyDecisions.filter(d=>ACTIONABLE_STATUSES.has(d.status)&&d.outcomes.some(o=>o.pointInTime&&o.returnSinceDecision!=null&&o.checkpointDays>=7)).length,
+      status:valid?'RECORDED':'BUILDING',paperReturn:valid?round(perf.totalReturn):null,spyReturn:valid?round(perf.benchmarkReturn):null,
+      relativeToSpy:valid?round(perf.totalReturn-perf.benchmarkReturn):null};
+  });
+}
+
 export function buildTrackRecord({snapshots=[],decisions=[],generatedAt=new Date().toISOString()}={}){
   const snapshotRows=snapshotEvidence(snapshots);
   const decisionRows=outcomeEvidence(decisions);
@@ -95,6 +113,7 @@ export function buildTrackRecord({snapshots=[],decisions=[],generatedAt=new Date
   const pointInTimeOutcomeRate=(decision.scoredPointInTimeOutcomes+decision.excludedNonPointInTimeOutcomes)
     ? decision.scoredPointInTimeOutcomes/(decision.scoredPointInTimeOutcomes+decision.excludedNonPointInTimeOutcomes):0;
   const recorded=completeSnapshots.length>=30 && decision.maturedActionableDecisions>=10;
+  const monthly=monthlyEvidence(snapshotRows,decisionRows,recorded);
   return {
     schemaVersion:1,
     methodologyVersion:'kairos-track-record-v1',
@@ -112,6 +131,7 @@ export function buildTrackRecord({snapshots=[],decisions=[],generatedAt=new Date
       method:'time_weighted_return_from_recorded_snapshots'
     },
     decision,
+    monthly,
     coverage:{snapshotCoverage:round(snapshotCoverage),spyCoverage:round(spyCoverage),pointInTimeOutcomeRate:round(pointInTimeOutcomeRate)},
     integrity:{algorithm:'sha256',evidenceHash,externallyAudited:false,attestation:'Integrity hash detects evidence changes in this export; it is not an external audit or third-party attestation.'},
     claims:{

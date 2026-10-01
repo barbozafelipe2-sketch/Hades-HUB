@@ -137,13 +137,13 @@ function clean(v){ return String(v||'').trim(); }
   assert.equal(providerTimeoutMs('chat'), CHAT_PROVIDER_TIMEOUT_MS);
   assert.ok(/7\.3\.0/.test(read('public/index.html')),'cache-bust 7.3.0');
   assert.ok(/\"version\"\s*:\s*\"7\.3\.0\"/.test(read('package.json')),'package version 7.3.0');
-  assert.ok(/PAPER BROKER/.test(read('public/index.html')),'commercial login descriptor');
+  assert.ok(/AUDITABLE DECISION JOURNAL/.test(read('public/index.html')),'commercial login descriptor');
   const css=read('public/styles.css')+read('public/ui-reference.css');
   assert.ok(css.includes('--hades-gold:#B59410'));
   assert.ok(css.includes('--hades-blue:#1B4C93'));
   assert.ok(css.includes('--hades-charcoal:#1A1A1A')||css.includes('#1A1A1A'));
   assert.ok(css.includes('--hades-mix:#7A7256'));
-  assert.ok(/PAPER BROKER · V7\.3/.test(read('public/index.html')),'topbar V7.3 commercial descriptor');
+  assert.ok(/DECISION JOURNAL · V7\.3/.test(read('public/index.html')),'topbar V7.3 commercial descriptor');
   assert.ok(fs.existsSync(path.join(root,'netlify/functions/ai-mirror-job.mjs')),'ai-mirror-job present');
   const mirrorFn=read('netlify/functions/ai-mirror.mjs');
   assert.ok(/background\s*:\s*true/.test(mirrorFn),'ai-mirror background');
@@ -165,7 +165,7 @@ function clean(v){ return String(v||'').trim(); }
   assert.ok(!/kairos-logo\.jpg/.test(html),'login must not use JPG sticker');
   assert.ok(/kairos-mark\.png/.test(html),'login uses official KAIROS mark');
   assert.ok(/login-v53|login-mark-svg|login-v6/.test(html),'login classes');
-  assert.ok(/PAPER BROKER/.test(html));
+  assert.ok(/AUDITABLE DECISION JOURNAL/.test(html));
   const gate=read('netlify/lib/ai-gate.mjs');
   assert.ok(/conservative_paper_release|conservativeRelease/.test(gate),'soft conservative release');
   assert.ok(/PAPER SIMULATION|paper simulation/i.test(gate),'paper-sim judge prompt');

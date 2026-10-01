@@ -52,7 +52,7 @@ assert.equal(crypto.createHash('sha256').update(ui).digest('hex'),expectedUiSha)
 
 const app=fs.readFileSync('./public/app.js','utf8'), index=fs.readFileSync('./public/index.html','utf8');
 for(const symbol of ['QQQ','SPY','BTC','ETH','VNQ','GLD','TLT','VT','AAPL','KO','MSFT','NVDA']) assert.ok(fs.readFileSync('./netlify/lib/market-universe.mjs','utf8').includes(symbol));
-assert.ok(app.includes('WALLET MIRROR')&&app.includes('AI MIRROR')&&app.includes('PERFORMANCE · YOU vs KAIROS')); pass('Locked Broker → Wallet → AI → Performance architecture is present');
+assert.ok(app.includes('WALLET MIRROR')&&app.includes('AI MIRROR')&&app.includes('DECISION JOURNAL · TRACK RECORD')); pass('Locked paper workspace + decision-journal architecture is present');
 assert.ok(!index.includes('data-section="markets"')); pass('Disconnected Markets page removed from navigation');
 const universeSrc=fs.readFileSync('./netlify/lib/market-universe.mjs','utf8');
 const perfSrc=fs.readFileSync('./netlify/lib/mirror-performance.mjs','utf8');

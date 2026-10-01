@@ -4,6 +4,12 @@
 
 KAIROS is being prepared as a web/PWA paper-research product first. This stage creates the technical account/data boundary; it does not claim regulatory registration or legal clearance.
 
+### Product positioning and retention evidence
+
+The product is an **auditable decision journal with adversarial review and paper execution**. The Broker remains a paper-workspace feature; it is not the product promise. Public copy and the signed-in home screen lead with saved reviews, matured outcomes, and the Track Record state. Relative return versus SPY stays hidden as a completed result until the existing evidence thresholds are met.
+
+The record now shows monthly paper returns relative to SPY beside each month's saved review and matured outcome counts, once the existing Track Record thresholds are met. It still does not record an explicit user response to each recommendation (followed, overridden, or no paper action), nor prove that an outcome was caused by following or ignoring a review. Do not infer adherence from a nearby trade. The remaining adherence feature should store the user's declared response as a tenant-scoped audit event and link a paper order when one exists. Monthly return remains descriptive co-occurring evidence; never label the difference as a causal “cost” of ignoring a review. Willingness to pay and the final price remain unvalidated until cost-per-review and retention are measured in Preview/beta.
+
 Implemented in this stage:
 
 - **Commercial multi-tenant account model** with `userId`, `tenantId`, role and tenant status.

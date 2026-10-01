@@ -1,8 +1,8 @@
 {
-  "./public/index.html": "c4e1ae94a767ee54aea594251ea6dd0809adc205065741c6f1257453ad9a6c62",
-  "./public/app.js": "d61f91c5cb9a0eb703c60bf40f50ca834b1b2bb3d22714233cb16d485151eb7e",
+  "./public/index.html": "e81b5e09c7a7027975397701514adfa20f0339ec817b4cb44c0433cf3b0125bc",
+  "./public/app.js": "41e5f54c8794752d8df7edab4e0209d395f06c46284f1966abffabe31dd15e02",
   "./public/v7.css": "b697edf28d1550530b71b41e7628f6a43a175a24d2e1877bac474deb0bba4a3d",
   "./public/styles.css": "49068378182ceb961dc64c705e6887d48717c1d6e0b5528928ef072f4efe409f",
   "./public/kairos-mark.png": "0da825055982a3d12f6245ef9d9694461addead44890b5d88fe2592fdfee8da0",
-  "./public/manifest.webmanifest": "9c69ec040745425eb0a16c79f0322e87a604b31f3c54c58dfca6ba600c53e2be"
+  "./public/manifest.webmanifest": "da0b860e111b298ff747448064b12245da6ab64dcbde1e579295dcc3fffbb50f"
 }

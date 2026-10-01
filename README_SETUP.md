@@ -1,4 +1,4 @@
-# KAIROS Paper Broker V7.3 — hardened Netlify AI Gateway edition
+# KAIROS Decision Journal V7.3 — hardened Netlify AI Gateway edition
 
 KAIROS is a private market-advisor and paper-broker simulator. V7.3 preserves the V7 product/UI, Broker, Wallet Mirror, AI Mirror, Decision Review, Decision History, Learning Lab and performance engine while hardening AI routing, financial-state integrity, historical evaluation, preview isolation, backup recovery and release reproducibility.
 
