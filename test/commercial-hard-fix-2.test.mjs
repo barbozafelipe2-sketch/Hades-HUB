@@ -49,6 +49,36 @@ const healthResponse=await providerHealth(new Request('https://local/.netlify/fu
 assert.equal(healthResponse.status,402);
 assert.equal((await healthResponse.json()).error,'TRIAL_EXPIRED');
 
+// One configured provider consumes one unit; an exhausted budget prevents the next live probe.
+await store.setSystemJSON('auth/users/u_trial',{id:'u_trial',tenantId:activeTrial.id,username:'trial-owner',email:'trial@example.com',role:'owner',status:'active',credentialVersion:1});
+const activeToken=await auth.createSessionToken({userId:'u_trial',tenantId:activeTrial.id,role:'owner',credentialVersion:1});
+process.env.OPENAI_API_KEY='qa-openai-key';
+process.env.OPENAI_BASE_URL='https://mock-openai.local';
+delete process.env.HADES_OPENAI_API_KEY;
+delete process.env.ANTHROPIC_API_KEY;
+delete process.env.GEMINI_API_KEY;
+delete process.env.GOOGLE_API_KEY;
+const originalFetch=globalThis.fetch;
+let providerCalls=0;
+globalThis.fetch=async()=>{providerCalls++;return new Response(JSON.stringify({id:'resp_qa',model:'gpt-5.6-luna',output_text:'OK'}),{status:200,headers:{'content-type':'application/json'}});};
+try{
+  store.configurePersistenceForRequest({});
+  const activeHealth=await providerHealth(new Request('https://local/.netlify/functions/provider-health',{headers:{cookie:`kairos_session=${encodeURIComponent(activeToken)}`}}),{requestId:'req-active-provider-health'});
+  assert.equal(activeHealth.status,200);
+  assert.equal(providerCalls,1,'only the configured OpenAI provider should be probed');
+  store.configurePersistenceForRequest({});
+  store.configureTenantForRequest({tenantId:activeTrial.id,userId:'u_trial',role:'owner'});
+  assert.equal((await commercial.commercialStatus({tenantId:activeTrial.id,userId:'u_trial',role:'owner'})).usage.used,5,'provider health must consume one AI unit');
+  const exhaustedHealth=await providerHealth(new Request('https://local/.netlify/functions/provider-health',{headers:{cookie:`kairos_session=${encodeURIComponent(activeToken)}`}}),{requestId:'req-exhausted-provider-health'});
+  assert.equal(exhaustedHealth.status,429);
+  assert.equal((await exhaustedHealth.json()).error,'USAGE_BUDGET_EXCEEDED');
+  assert.equal(providerCalls,1,'budget rejection must happen before another provider probe');
+}finally{
+  globalThis.fetch=originalFetch;
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_BASE_URL;
+}
+
 store.configurePersistenceForRequest({}); store.configureTenantForRequest({tenantId:privateTenant.id,userId:'u_private',role:'owner'});
 const privateAccess=await commercial.assertCommercialAccess({tenantId:privateTenant.id,userId:'u_private',role:'owner'},{feature:'learning-lab',consumeUnits:true,idempotencyKey:'private-1'});
 assert.equal(privateAccess.usage.unlimited,true);
@@ -117,4 +147,4 @@ const decisionSrc=fs.readFileSync(new URL('../netlify/functions/decision-run.mjs
 assert.ok(decisionSrc.includes("feature:'decision-review'"));
 const chatSrc=fs.readFileSync(new URL('../netlify/functions/ai-chat.mjs',import.meta.url),'utf8');
 assert.ok(chatSrc.includes("feature:coach.tier==='deep'?'coach-deep':'coach-fast'"));
-console.log(JSON.stringify({ok:true,tests:['trial entitlement','trial expiry','expired trial blocks provider health','private owner unlimited','monthly usage budget','idempotent usage replay','active Stripe entitlement','signed webhook','invalid signature rejection','webhook replay idempotency','out-of-order Stripe event protection','tenant audit log','UI billing surface']},null,2));
+console.log(JSON.stringify({ok:true,tests:['trial entitlement','trial expiry','expired trial blocks provider health','provider diagnostics charge configured AI units','budget rejects before provider probe','private owner unlimited','monthly usage budget','idempotent usage replay','active Stripe entitlement','signed webhook','invalid signature rejection','webhook replay idempotency','out-of-order Stripe event protection','tenant audit log','UI billing surface']},null,2));
