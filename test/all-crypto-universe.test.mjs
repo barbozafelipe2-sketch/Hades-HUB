@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 process.env.TWELVE_DATA_API_KEY='test_crypto_catalog_key';
+process.env.FINNHUB_API_KEY='test_finnhub_crypto_catalog_key';
 process.env.SAURON_ALLOW_EPHEMERAL_READS='true';
 process.env.SAURON_ALLOW_EPHEMERAL_WRITES='true';
 const originalFetch=globalThis.fetch;
@@ -15,6 +16,15 @@ globalThis.fetch=async(url)=>{
       {symbol:'DOGE/USD',currency_base:'Dogecoin',currency_quote:'US Dollar',available_exchanges:['Kraken']},
       {symbol:'ETH/BTC',currency_base:'Ethereum',currency_quote:'Bitcoin',available_exchanges:['Binance']}
     ]}),{status:200,headers:{'content-type':'application/json'}});
+  }
+  if(u.pathname.endsWith('/crypto/symbol')){
+    assert.equal(u.searchParams.get('exchange'),'BINANCE');
+    return new Response(JSON.stringify([
+      {symbol:'BINANCE:BTCUSDT',displaySymbol:'BTC/USDT',description:'Bitcoin'},
+      {symbol:'BINANCE:ADAUSDT',displaySymbol:'ADA/USDT',description:'Cardano'},
+      {symbol:'BINANCE:XRPUSDT',displaySymbol:'XRP/USDT',description:'XRP'},
+      {symbol:'BINANCE:ETHBTC',displaySymbol:'ETH/BTC',description:'Ethereum / Bitcoin'}
+    ]),{status:200,headers:{'content-type':'application/json'}});
   }
   throw new Error(`UNEXPECTED_FETCH:${u.pathname}`);
 };
@@ -36,9 +46,10 @@ assert.equal(sol.total,1);
 assert.equal(sol.assets[0].symbol,'SOL-USD');
 assert.equal(sol.assets[0].label,'Solana');
 const all=await cryptoCatalog.searchCryptoCatalog({q:'',limit:20});
-assert.equal(all.total,4,'non-USD pairs must not leak into the USD paper broker');
-assert.deepEqual(all.assets.map(x=>x.symbol),['BTC','DOGE-USD','ETH','SOL-USD']);
+assert.equal(all.total,6,'catalog must merge all supported USD/USDT assets from connected market feeds without leaking non-USD pairs');
+assert.deepEqual(all.assets.map(x=>x.symbol),['ADA-USD','BTC','DOGE-USD','ETH','SOL-USD','XRP-USD']);
 assert.equal((await cryptoCatalog.findCryptoAsset('DOGE-USD')).label,'Dogecoin');
+assert.equal((await cryptoCatalog.findCryptoAsset('ADA-USD')).label,'Cardano');
 
 globalThis.fetch=originalFetch;
 
@@ -50,6 +61,7 @@ const trace=fs.readFileSync(new URL('../netlify/lib/trace.mjs',import.meta.url),
 
 assert.ok(catalog.includes('vendor.match(/^([A-Z0-9]{1,18})\\/USD$/)'));
 assert.match(catalog,/MAX_CATALOG_ROWS=10000/);
+assert.match(catalog,/finnhubCryptoCatalog/);
 assert.match(endpoint,/category==='crypto'/);
 assert.match(endpoint,/resolveCrypto/);
 assert.match(app,/Load more crypto/);
