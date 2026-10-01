@@ -34,6 +34,10 @@ function clean(v){ return String(v||'').trim(); }
   assert.equal(resolveModelForProvider('openai','chat'),'gpt-5.6-luna');
   assert.equal(resolveModelForProvider('openai','primary'),'gpt-5.6-luna');
   assert.equal(resolveModelForProvider('openai','final_gate'),'gpt-5.6-terra');
+  assert.equal(resolveModelForProvider('openai','decision_financial'),'gpt-5.6-luna');
+  assert.equal(resolveModelForProvider('anthropic','decision_macro'),'claude-haiku-4-5');
+  assert.equal(resolveModelForProvider('gemini','decision_causal'),'gemini-2.5-flash');
+  assert.equal(resolveModelForProvider('openai','crown'),'gpt-5.6-terra','strong synthesis keeps its guarded model tier');
   assert.equal(resolveModelForProvider('anthropic','critic'),'claude-sonnet-5');
   assert.equal(resolveModelForProvider('gemini','risk'),'gemini-2.5-pro');
   assert.ok(openAIModelCandidates('gpt-5.6-terra').includes(OPENAI_DEFAULT_MODEL));
@@ -53,6 +57,7 @@ function clean(v){ return String(v||'').trim(); }
   assert.deepEqual(doc.market_research,[...ROLE_PROVIDER_CHAINS.market_research]);
   assert.ok(/Netlify AI Gateway/i.test(doc.note));
   assert.ok(VALID_AI_ROLES.includes('scenario'));
+  assert.match(doc.decision_cost_policy,/fast-tier Luna\/Haiku\/Flash/);
   console.log('ok gateway role chains');
 }
 

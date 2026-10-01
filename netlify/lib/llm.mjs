@@ -52,7 +52,7 @@ export const ROLE_PROVIDER_CHAINS=Object.freeze({
   learning_lab:Object.freeze(['openai','anthropic','gemini'])
 });
 export const VALID_AI_ROLES=Object.freeze(Object.keys(ROLE_PROVIDER_CHAINS));
-const TERRA_ROLES=new Set(['learning_lab','critic','risk','scenario','suitability','crown','adjudicator','final_gate',...VALID_AI_ROLES.filter(r=>r.startsWith('decision_'))]);
+const TERRA_ROLES=new Set(['learning_lab','critic','risk','scenario','suitability','crown','adjudicator','final_gate']);
 const SOL_ROLES=new Set(['crown','adjudicator','final_gate']);
 
 const MODEL_POLICY=Object.freeze({
@@ -61,8 +61,8 @@ const MODEL_POLICY=Object.freeze({
     deep:OPENAI_DEEP_MODEL,primary:OPENAI_DEEP_MODEL,generate:OPENAI_DEEP_MODEL,
     research:OPENAI_DEEP_MODEL,evidence:OPENAI_DEEP_MODEL,market_research:OPENAI_DEEP_MODEL,
     critic:OPENAI_DEEP_MODEL,risk:OPENAI_DEEP_MODEL,scenario:OPENAI_DEEP_MODEL,suitability:OPENAI_DEEP_MODEL,
-    decision_financial:OPENAI_DEEP_MODEL,decision_macro:OPENAI_DEEP_MODEL,decision_causal:OPENAI_DEEP_MODEL,
-    decision_evidence_attack:OPENAI_DEEP_MODEL,decision_scenario_attack:OPENAI_DEEP_MODEL,decision_portfolio_attack:OPENAI_DEEP_MODEL,
+    decision_financial:OPENAI_DEFAULT_MODEL,decision_macro:OPENAI_DEFAULT_MODEL,decision_causal:OPENAI_DEFAULT_MODEL,
+    decision_evidence_attack:OPENAI_DEFAULT_MODEL,decision_scenario_attack:OPENAI_DEFAULT_MODEL,decision_portfolio_attack:OPENAI_DEFAULT_MODEL,
     crown:OPENAI_FINAL_MODEL,adjudicator:OPENAI_FINAL_MODEL,final_gate:OPENAI_FINAL_MODEL,
     default:OPENAI_DEEP_MODEL
   }),
@@ -71,8 +71,8 @@ const MODEL_POLICY=Object.freeze({
     deep:ANTHROPIC_REASONING_MODEL,primary:ANTHROPIC_REASONING_MODEL,generate:ANTHROPIC_REASONING_MODEL,
     research:ANTHROPIC_REASONING_MODEL,evidence:ANTHROPIC_REASONING_MODEL,market_research:ANTHROPIC_REASONING_MODEL,
     critic:ANTHROPIC_REASONING_MODEL,risk:ANTHROPIC_REASONING_MODEL,scenario:ANTHROPIC_REASONING_MODEL,suitability:ANTHROPIC_REASONING_MODEL,
-    decision_financial:ANTHROPIC_REASONING_MODEL,decision_macro:ANTHROPIC_REASONING_MODEL,decision_causal:ANTHROPIC_REASONING_MODEL,
-    decision_evidence_attack:ANTHROPIC_REASONING_MODEL,decision_scenario_attack:ANTHROPIC_REASONING_MODEL,decision_portfolio_attack:ANTHROPIC_REASONING_MODEL,
+    decision_financial:ANTHROPIC_FAST_MODEL,decision_macro:ANTHROPIC_FAST_MODEL,decision_causal:ANTHROPIC_FAST_MODEL,
+    decision_evidence_attack:ANTHROPIC_FAST_MODEL,decision_scenario_attack:ANTHROPIC_FAST_MODEL,decision_portfolio_attack:ANTHROPIC_FAST_MODEL,
     crown:ANTHROPIC_REASONING_MODEL,adjudicator:ANTHROPIC_REASONING_MODEL,final_gate:ANTHROPIC_REASONING_MODEL,
     default:ANTHROPIC_REASONING_MODEL
   }),
@@ -81,8 +81,8 @@ const MODEL_POLICY=Object.freeze({
     deep:GEMINI_REASONING_MODEL,primary:GEMINI_REASONING_MODEL,generate:GEMINI_REASONING_MODEL,
     research:GEMINI_REASONING_MODEL,evidence:GEMINI_REASONING_MODEL,market_research:GEMINI_FAST_MODEL,
     critic:GEMINI_REASONING_MODEL,risk:GEMINI_REASONING_MODEL,scenario:GEMINI_REASONING_MODEL,suitability:GEMINI_REASONING_MODEL,
-    decision_financial:GEMINI_REASONING_MODEL,decision_macro:GEMINI_REASONING_MODEL,decision_causal:GEMINI_REASONING_MODEL,
-    decision_evidence_attack:GEMINI_REASONING_MODEL,decision_scenario_attack:GEMINI_REASONING_MODEL,decision_portfolio_attack:GEMINI_REASONING_MODEL,
+    decision_financial:GEMINI_FAST_MODEL,decision_macro:GEMINI_FAST_MODEL,decision_causal:GEMINI_FAST_MODEL,
+    decision_evidence_attack:GEMINI_FAST_MODEL,decision_scenario_attack:GEMINI_FAST_MODEL,decision_portfolio_attack:GEMINI_FAST_MODEL,
     crown:GEMINI_REASONING_MODEL,adjudicator:GEMINI_REASONING_MODEL,final_gate:GEMINI_REASONING_MODEL,
     default:GEMINI_REASONING_MODEL
   })
@@ -101,7 +101,7 @@ export function outputTokenBudget(role='primary'){
   if(r==='market_research') return 1100;
   if(r==='deep'||r==='research'||r==='evidence'||r==='learning_lab') return 1800;
   if(r==='crown'||r==='adjudicator'||r==='final_gate') return 2600;
-  if(r.startsWith('decision_')) return 1700;
+  if(r.startsWith('decision_')) return 1100;
   return 1800;
 }
 
@@ -370,6 +370,7 @@ export function documentedFallbackChains(){
     research:[...ROLE_PROVIDER_CHAINS.research],evidence:[...ROLE_PROVIDER_CHAINS.evidence],primary:[...ROLE_PROVIDER_CHAINS.primary],
     chat:[...ROLE_PROVIDER_CHAINS.chat],coach_verify:[...ROLE_PROVIDER_CHAINS.coach_verify],deep:[...ROLE_PROVIDER_CHAINS.deep],market_research:[...ROLE_PROVIDER_CHAINS.market_research],
     decision_financial:[...ROLE_PROVIDER_CHAINS.decision_financial],decision_macro:[...ROLE_PROVIDER_CHAINS.decision_macro],decision_causal:[...ROLE_PROVIDER_CHAINS.decision_causal],
-    note:'KAIROS V7.3 uses Netlify AI Gateway. Cheap chat starts on GPT-5.6 Luna; deep analysis uses GPT-5.6 Terra; critics/risk intentionally cross Anthropic/Gemini; final Decision Review uses GPT-5.6 Sol. Market prices/charts remain deterministic from licensed market feeds.'
+    decision_cost_policy:'Decision specialists and attacks start with fast-tier Luna/Haiku/Flash models and an 1100-token response budget. Provider failover is used only on an error; the existing deep synthesis and independently guarded final gate remain in place. No cost saving can bypass the daily USD caps or evidence checks.',
+    note:'KAIROS V7.3 uses Netlify AI Gateway. Routine and decision worker calls use fast-tier models; deep synthesis and the cross-provider final gate retain stronger models. Market prices/charts remain deterministic from licensed market feeds.'
   };
 }

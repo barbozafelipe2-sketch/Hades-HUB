@@ -97,9 +97,31 @@ For each actual model request, KAIROS records provider, model, estimated input/o
 
 ### Model routing and multi-agent cost
 
-The Netlify AI Gateway is a model access/routing layer. OpenRouter can be configured as a provider path, but this does not itself create or supervise runtime subagents. Multiple evidence-gathering calls can increase total input/output tokens and tool overhead, even when each worker uses a cheaper model. KAIROS therefore does not fan out customer requests to agents by default.
+Decision Review already runs three specialist analyses and three independent attacks in parallel. Those six worker roles now default to the fast models exposed through Netlify AI Gateway (Luna, Haiku and Flash) and have a smaller 1,100-token response budget. A provider hop happens only after a request error. The provisional synthesis remains a deeper call, and the existing cross-provider critic/judge final gate is unchanged. The tenant/site USD caps, usage ledger and deterministic degradation still apply to every call. This should lower worker cost; actual savings and decision quality still need a measured Preview benchmark before launch.
 
-Before enabling multi-agent analysis, benchmark it against the current single-pass route on a fixed, versioned evaluation set. Compare total USD per completed task, latency, unsupported claims, citation/source coverage, numeric-field violations, and disagreement resolution. Require lower cost without a worse result on any safety/credibility metric, keep the same per-request and daily USD caps across the whole fan-out, and fail closed to deterministic output when the cap is exhausted. Keep market numbers and evidence selection outside model authority. Recheck provider data-retention terms and Netlify/OpenRouter routing eligibility before any production use.
+This implementation uses the configured first-party Netlify Gateway provider SDKs and existing metered calls; it does not add an OpenRouter dependency or claim OpenRouter supervision of the worker calls. Before changing the provider path, benchmark total USD per completed task, latency, unsupported claims, source coverage, numeric-field violations and disagreement resolution on a fixed, versioned evaluation set. Check provider retention and routing eligibility as part of that review. Keep market numbers and evidence selection outside model authority.
+
+### Historical macro and geopolitical Trace context
+
+Trace snapshots can include a wider context record covering policy rates/yields, inflation, labor, growth, demand, credit, FX, energy and other commodities, trade/supply chains, shipping, conflict, sanctions/export controls, elections, fiscal/regulatory policy, public health and climate/disaster disruption. This is a factor catalog, not a claim that each factor is available or predictive.
+
+The source is deliberately owner-plugged because economic series and news/event feeds have different commercial display and historical-vintage rights. Configure server-only `KAIROS_TRACE_CONTEXT_BASE_URL`, `KAIROS_TRACE_CONTEXT_API_KEY` and `KAIROS_TRACE_CONTEXT_LICENSE_ID`. KAIROS requests `GET {base-url}/trace-context?as_of=YYYY-MM-DD`. The JSON response contract is:
+
+```json
+{
+  "as_of": "2024-01-31",
+  "factors": [{
+    "factor_code": "inflation", "value": 3.1, "unit": "%", "period": "2024-01",
+    "observed_at": "2024-01-31T00:00:00Z", "published_at": "2024-02-13T13:30:00Z",
+    "available_at": "2024-02-13T13:30:00Z", "source": "Licensed provider",
+    "source_url": "https://provider.example/series/1", "license_id": "commercial-license-id",
+    "point_in_time": true, "revision_id": "v1"
+  }],
+  "events": []
+}
+```
+
+The example row would be rejected for a January 31 trace because it was released in February. Each accepted observation requires a catalogued factor code, finite source value, HTTPS source URL, exact configured license id, `point_in_time: true`, and observed/published/available timestamps no later than the end-of-day UTC cutoff. Invalid or later rows are excluded; absent configuration, timeout, license mismatch or no valid rows displays `UNAVAILABLE`. KAIROS stores this evidence in the date's existing trace snapshot and never asks an LLM to supply a factor value, publication date, price or causal link. The current configured license, rights to retain/display the feed, and source quality remain human gates.
 
 ### Remaining before public paid launch
 

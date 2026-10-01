@@ -7,6 +7,7 @@ import { UNIVERSE_SYMBOLS } from './market-universe.mjs';
 import { maybeAutoEvolution } from './evolution.mjs';
 import { processPendingPaperOrders } from './paper-orders.mjs';
 import { historicalClose, historicalMarks } from './historical-prices.mjs';
+import { getHistoricalTraceContext } from './trace-context.mjs';
 
 function isoDate(d=new Date()){ return new Date(d).toISOString().slice(0,10); }
 function shiftDate(date,days){ const d=new Date(`${String(date).slice(0,10)}T00:00:00Z`); d.setUTCDate(d.getUTCDate()+Number(days||0)); return isoDate(d); }
@@ -49,6 +50,9 @@ export async function refreshWorldState(date=marketDate(),{deadlineAt,extraSymbo
   const portfolio=await getPortfolio();
   const symbols=[...new Set([...UNIVERSE_SYMBOLS,...portfolio.derived.positions.map(p=>p.symbol),...(Array.isArray(extraSymbols)?extraSymbols:[])])].slice(0,48);
   const ws=await getMarketWorldState({date,symbols,deadlineAt});
+  // Context is optional and deterministic. It uses its own licensed feed and
+  // cannot block the quote/portfolio path when unavailable.
+  ws.trace_context=await getHistoricalTraceContext(date);
   const settings=await getSettings();
   if(settings.autoMarketMarks!==false){
     await withKeyLock('portfolio-ledger',async()=>{
@@ -91,6 +95,7 @@ export async function saveDailySnapshot(date,ws,{marksOverride=null,historical=f
     goldPrice:Number(ws?.benchmarks?.gold_price)||null,
     btcPrice:Number(ws?.benchmarks?.btc_price)||null,
     regime:ws?.regime||null,
+    traceContext:ws?.trace_context||null,
     completeMarks:derived.completeMarks,
     markIntegrity,
     positions:derived.positions.map(p=>({symbol:p.symbol,quantity:p.quantity,price:p.price,marketValue:p.marketValue,priceSource:p.priceSource,staleMark:p.staleMark,markAsOf:p.markAsOf}))
@@ -165,6 +170,7 @@ async function reconstructHistoricalWorldState(date){
     drivers:[],cross_asset:[],risks:[],unknowns:['Historical news/regime context intentionally not reconstructed to avoid look-ahead bias.'],
     _meta:{market_source:'licensed_historical_close',price_authority:'licensed_historical_close',historical_reconstruction:true,point_in_time:true,look_ahead_guard:true,errors:hist.errors}
   };
+  ws.trace_context=await getHistoricalTraceContext(date);
   await setJSON(`trace/world-state/${date}`,ws); // never overwrite latest current world state
   return {ws,marks:hist.marks};
 }
