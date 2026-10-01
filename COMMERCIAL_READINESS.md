@@ -28,11 +28,14 @@ On the first commercial production deploy, Database migrations create the KAIROS
 
 `KAIROS_DATA_BACKEND=blobs` exists only as a compatibility escape hatch while the commercial migration is being proven. Public commercial operation should use the Postgres backend.
 
-## Still required before public paid launch
+## Remaining before public paid launch
 
-**Hard Fix 2/3:** billing/entitlements, usage-cost budgets, tenant admin/audit, support/recovery and operational/SLA controls.
+Hard Fix 1/3 through 3/3, the privacy/deletion lifecycle and public release controls are implemented in this branch. GitHub Actions verifies the repository checks; it does not validate live services or production configuration.
 
-**Hard Fix 3/3:** compliance/product-mode boundaries, auditable paper track record vs SPY, marketing substantiation, onboarding/landing/PWA release gate, production legal review checklist and launch controls.
+Before public launch, complete:
+- End-to-end runtime tests for signup/login, tenant isolation, Stripe test events, market data, AI Gateway, paper orders, backup/restore and deletion.
+- The final branch audit and polish before any merge to `main`.
+- Qualified legal, privacy, securities/regulatory and market-data licensing reviews.
 
 Technical wording and architecture do not by themselves determine investment-adviser or broker-dealer obligations. U.S. launch positioning and any paid securities analysis should be reviewed by qualified securities counsel before public sale.
 
@@ -85,9 +88,9 @@ Default internal budgets are conservative release guardrails and can be changed 
 
 These are **operational cost units**, not customer-visible token balances and not a guarantee of a particular number of AI calls. Provider pricing/model routing can change independently.
 
-### Still required before public paid launch
+### Remaining before public paid launch
 
-**Hard Fix 3/3 remains mandatory:** compliance/product-mode boundaries, auditable paper track record vs SPY, claims/marketing substantiation, deletion/privacy lifecycle, landing/onboarding/PWA launch gates, production legal-review checklist and final release controls.
+The Hard Fix 3/3 implementation and privacy/release controls are included below. Live runtime testing and external reviews listed above remain release gates.
 
 ## Hard Fix 3/3 — auditable paper evidence
 
