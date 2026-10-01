@@ -46,7 +46,8 @@ export default async (req,context)=>{
     const evolution=await getEvolutionState(); const championStrategy=normalizeStrategy(evolution?.champion?.policy||DEFAULT_STRATEGY);
     let world=await getWorldState();
     const stale=!world?.generated_at || Date.now()-Date.parse(world.generated_at)>12*3600*1000;
-    if(forceRefresh || stale) world=await refreshWorldState(marketDate());
+    const symbolMissing=!(world?.instruments||[]).some(i=>String(i?.symbol||'').toUpperCase()===symbol);
+    if(forceRefresh || stale || symbolMissing) world=await refreshWorldState(marketDate(),{extraSymbols:[symbol]});
     const position=portfolio.derived.positions.find(p=>p.symbol===symbol)||null;
     const decisionDate=marketDate();
     const assetEvidence=await buildAssetEvidence({symbol,date:decisionDate,profile:modelProfile,position,worldState:world});

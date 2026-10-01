@@ -45,9 +45,9 @@ export async function missingTraceDates(today=marketDate(),maxResults=90){
   return out;
 }
 
-export async function refreshWorldState(date=marketDate(),{deadlineAt}={}){
+export async function refreshWorldState(date=marketDate(),{deadlineAt,extraSymbols=[]}={}){
   const portfolio=await getPortfolio();
-  const symbols=[...new Set([...UNIVERSE_SYMBOLS,...portfolio.derived.positions.map(p=>p.symbol)])].slice(0,48);
+  const symbols=[...new Set([...UNIVERSE_SYMBOLS,...portfolio.derived.positions.map(p=>p.symbol),...(Array.isArray(extraSymbols)?extraSymbols:[])])].slice(0,48);
   const ws=await getMarketWorldState({date,symbols,deadlineAt});
   const settings=await getSettings();
   if(settings.autoMarketMarks!==false){

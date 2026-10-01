@@ -3,13 +3,17 @@ import { getEnv } from './env.mjs';
 const BASE='https://finnhub.io/api/v1';
 /** Equity tickers that collide with crypto short names on Finnhub. */
 const CRYPTO_MAP={BTC:'BINANCE:BTCUSDT',ETH:'BINANCE:ETHUSDT'};
+const CRYPTO_CANONICAL_RE=/^([A-Z0-9]{1,18})-USD$/;
 
 function key(){ return String(getEnv('FINNHUB_API_KEY')).trim(); }
 export function finnhubConfigured(){ return !!key(); }
 export function finnhubSymbol(symbol){
   const s=String(symbol||'').trim().toUpperCase();
-  return CRYPTO_MAP[s]||s;
+  const m=s.match(CRYPTO_CANONICAL_RE);
+  return m?`BINANCE:${m[1]}USDT`:(CRYPTO_MAP[s]||s);
 }
+export function finnhubIsCryptoSymbol(symbol){ const s=String(symbol||'').trim().toUpperCase(); return !!CRYPTO_MAP[s] || CRYPTO_CANONICAL_RE.test(s); }
+
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
 async function fh(path,params={},timeoutMs=9000){
@@ -75,7 +79,7 @@ export async function finnhubHealth(){
 export async function finnhubSeries(symbol,{outputsize=32,startDate=null,endDate=null}={}){
   const requested=String(symbol||'').toUpperCase();
   const vendor=finnhubSymbol(requested);
-  const isCrypto=!!CRYPTO_MAP[requested];
+  const isCrypto=finnhubIsCryptoSymbol(requested);
   const n=Math.max(2,Math.min(90,Number(outputsize)||32));
   const to=endDate?Math.floor(Date.parse(`${String(endDate).slice(0,10)}T23:59:59Z`)/1000):Math.floor(Date.now()/1000);
   const from=startDate?Math.floor(Date.parse(`${String(startDate).slice(0,10)}T00:00:00Z`)/1000):to - Math.ceil(n*1.6)*86400; // weekdays buffer
@@ -134,7 +138,7 @@ export async function finnhubSeriesBundle(symbols,{outputsize=32,concurrency=1,b
     disclaimer:'Price history supplied by Finnhub. Coverage depends on Finnhub plan.',
     provider:'finnhub',
     series,
-    meta:{readySymbols:ready,findings:errors.map(e=>`${e.symbol}:${e.error}`).slice(0,12),market_source:'finnhub',fallback_used:false,partial:Number.isFinite(deadlineAt)&&Date.now()>=deadlineAt}
+    meta:{readySymbols:ready,findings:errors.map(e=>`${e.symbol}:${e.error}`).slice(0,18),market_source:'finnhub',fallback_used:false,partial:Number.isFinite(deadlineAt)&&Date.now()>=deadlineAt}
   };
 }
 

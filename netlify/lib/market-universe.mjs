@@ -1,5 +1,9 @@
-import { getWorldState, getMarketHistory } from './state.mjs';
+import { getWorldState, getMarketHistory, getMarks, saveMarks } from './state.mjs';
 import { getResearchSeries, seriesForSymbol } from './market-research-series.mjs';
+import { marketQuote, primaryProviderForSymbol } from './market-quotes.mjs';
+import { twelveConfigured, twelveSeries } from './twelve-data.mjs';
+import { finnhubConfigured, finnhubSeries } from './finnhub.mjs';
+import { withKeyLock } from './store.mjs';
 
 // Curated paper-broker universe: single stocks + liquid ETF/proxies.
 // Data-driven so a licensed vendor can expand later.
@@ -101,4 +105,38 @@ export async function buildUniverseView(){
       }:null
     };
   });
+}
+
+
+async function directSeries(symbol){
+  const primary=primaryProviderForSymbol(symbol);
+  const order=primary==='finnhub'?['finnhub','twelve']:['twelve','finnhub'];
+  for(const provider of order){
+    try{
+      if(provider==='twelve' && twelveConfigured()) return {provider:'twelve_data',points:(await twelveSeries(symbol,{outputsize:60})).points};
+      if(provider==='finnhub' && finnhubConfigured()) return {provider:'finnhub',points:(await finnhubSeries(symbol,{outputsize:60})).points};
+    }catch{}
+  }
+  return {provider:null,points:[]};
+}
+
+export async function buildDynamicAssetView(def,{persistMark=true}={}){
+  if(!def?.symbol) throw new Error('ASSET_SYMBOL_REQUIRED');
+  const q=await marketQuote(def.symbol);
+  const seriesResult=await directSeries(def.symbol);
+  const series=(seriesResult.points||[]).map(p=>({date:p.date,price:Number(p.price),asOf:p.date,source:p.source||seriesResult.provider,confidence:p.confidence||'high'})).filter(p=>Number.isFinite(p.price)&&p.price>0);
+  const d=String(q.asOf||new Date().toISOString()).slice(0,10);
+  const byDate=new Map(series.map(p=>[p.date,p]));
+  byDate.set(d,{date:d,price:q.price,asOf:q.asOf,source:q.provider||'market_quote',confidence:q.stale?'moderate':'high'});
+  const merged=[...byDate.values()].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const first=merged[0]?.price,last=merged.at(-1)?.price;
+  const periodReturn=Number.isFinite(first)&&first>0&&Number.isFinite(last)&&merged.length>=2?last/first-1:null;
+  if(persistMark){
+    await withKeyLock('portfolio-ledger',async()=>{
+      const marks=await getMarks();
+      marks[def.symbol]={price:q.price,source:q.provider||'market_quote',asOf:q.asOf||new Date().toISOString(),confidence:q.stale?'moderate':'high'};
+      await saveMarks(marks);
+    });
+  }
+  return {...def,current:{date:d,price:q.price,asOf:q.asOf,source:q.provider||null,confidence:q.stale?'moderate':'high'},series:merged,periodReturn,dayChange:Number.isFinite(Number(q.percentChange))?Number(q.percentChange)/100:null,historyReady:merged.length>=2,seriesSource:seriesResult.provider||'quote_only',researchMeta:{grade:'licensed_market_data',provider:seriesResult.provider||q.provider||null,generatedAt:new Date().toISOString(),disclaimer:'Crypto price/history supplied by licensed market-data providers; coverage depends on provider entitlement.'}};
 }

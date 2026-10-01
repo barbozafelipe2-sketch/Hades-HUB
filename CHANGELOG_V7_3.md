@@ -72,3 +72,9 @@
 - Added relational, allowlisted audit events for authentication, billing, account changes, paper activity and backup restore outcomes.
 - Added owner-only commercial status, audit-log and sanitized support-diagnostics endpoints.
 - Public signup now requires Stripe billing readiness by default in addition to Identity/legal release gates; private beta can explicitly opt out.
+
+## Dynamic crypto universe
+- Broker crypto discovery is provider-driven instead of limited to BTC/ETH.
+- Search and pagination cover every USD crypto pair returned by the licensed provider catalog (bounded at 10,000 normalized pairs per cache snapshot).
+- Dynamic crypto symbols use canonical BASE-USD identifiers and resolve licensed quote/history on demand for Broker, paper execution and Decision Review.
+- Non-USD pairs are intentionally excluded from the paper-broker catalog to keep pricing/accounting currency coherent.

@@ -1,5 +1,6 @@
 const $=(s,r=document)=>r.querySelector(s); const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 let state=null, currentSection='home', perfRange='1Y', decisionRange='all', selectedAsset=null, marketUniverse=[], selectedMarketId='nasdaq', mirrorFocus='all', brokerTradeSide='BUY', insightPane='queue', brokerSearch='', brokerCategory='ALL';
+let cryptoCatalogMeta={total:0,offset:0,limit:100,hasMore:false,provider:null,stale:false}; let cryptoCatalogLoading=false; let cryptoSearchTimer=null;
 
 async function api(path,options={}){
   const timeoutMs=Number(options.timeoutMs??20000);
@@ -338,7 +339,7 @@ function categoryChips(){
 function renderMarketCollections(){
   const defs=[
     ['US','U.S. Markets','Stocks · indexes · sectors','gold'],
-    ['Crypto','Crypto','Bitcoin · Ethereum',''],
+    ['Crypto','Crypto',cryptoCatalogMeta.total?`${cryptoCatalogMeta.total.toLocaleString()} supported USD pairs`:'All supported USD pairs',''],
     ['Bonds','Fixed Income','Treasuries · credit · T-bills',''],
     ['Commodities','Commodities','Gold · silver','gold'],
     ['Alts','Real Assets','Listed real estate',''],
@@ -524,6 +525,28 @@ function rankedUniverse(qRaw, list){
   const q=String(qRaw||'').trim();
   if(!q) return base.slice();
   return base.map(x=>({x,score:fuzzyAssetScore(x,q)})).filter(r=>r.score>0).sort((a,b)=>b.score-a.score||String(a.x.symbol).localeCompare(String(b.x.symbol))).map(r=>r.x);
+}
+async function loadCryptoCatalog(q=brokerSearch,{append=false}={}){
+  if(cryptoCatalogLoading) return; cryptoCatalogLoading=true;
+  try{
+    const offset=append?Number(cryptoCatalogMeta.offset||0)+Number(cryptoCatalogMeta.limit||100):0;
+    const r=await api(`market-universe?category=crypto&q=${encodeURIComponent(String(q||'').trim())}&offset=${offset}&limit=100`,{timeoutMs:20000});
+    cryptoCatalogMeta={total:Number(r.total||0),offset:Number(r.offset||0),limit:Number(r.limit||100),hasMore:!!r.hasMore,provider:r.provider||null,stale:!!r.stale};
+    const incoming=Array.isArray(r.assets)?r.assets:[];
+    const byId=new Map((marketUniverse||[]).map(x=>[x.id,x]));
+    for(const x of incoming){ const prior=byId.get(x.id); byId.set(x.id,prior?{...x,...prior}:x); }
+    marketUniverse=[...byId.values()];
+  }catch(e){ if(brokerCategory==='Crypto') toast(e.message||'Crypto catalog unavailable.'); }
+  finally{ cryptoCatalogLoading=false; }
+}
+async function resolveCryptoAsset(asset){
+  if(!asset || categoryOfKind(asset.kind)!=='Crypto') return asset;
+  if(asset.current?.price>0 && Array.isArray(asset.series) && asset.series.length>=2) return asset;
+  try{
+    const r=await api('market-universe',{method:'POST',body:JSON.stringify({action:'resolveCrypto',symbol:asset.symbol}),timeoutMs:30000});
+    if(r?.asset){ const i=marketUniverse.findIndex(x=>x.id===r.asset.id); if(i>=0) marketUniverse[i]=r.asset; else marketUniverse.push(r.asset); return r.asset; }
+  }catch(e){ toast(e.message||'Crypto market data unavailable.'); }
+  return asset;
 }
 function filteredUniverse(){
   let list=marketUniverse||[];
@@ -729,6 +752,7 @@ function renderBrokerHome(){
 
     <div class="broker-section-head tight"><div><div class="v7-kicker">MARKET BOARD</div><h2>${filtered.length} instruments</h2></div>${feedTrustBadge()}</div>
     <div class="mkt-stack mkt-grid-dense v7-market-grid">${filtered.length?filtered.map(universeCard).join(''):`<div class="v7-empty"><strong>${brokerCategory==='WATCH'?'Your watchlist is empty.':'No instruments match.'}</strong><span>${brokerCategory==='WATCH'?'Tap ☆ on any market card to build it.':'Clear search/category and try again.'}</span></div>`}</div>
+    ${brokerCategory==='Crypto'?`<div class="crypto-catalog-foot"><span class="tiny">${cryptoCatalogMeta.total?`${Math.min((marketUniverse||[]).filter(x=>categoryOfKind(x.kind)==='Crypto').length,cryptoCatalogMeta.total)} of ${cryptoCatalogMeta.total.toLocaleString()} USD crypto pairs loaded`:cryptoCatalogLoading?'Loading crypto catalog…':'Crypto catalog loads from the licensed provider.'}</span>${cryptoCatalogMeta.hasMore?`<button class="ghost-btn" id="loadMoreCryptoBtn">Load more crypto</button>`:''}</div>`:''}
 
     ${selectedMarketId?`<div class="broker-section-head tight"><div><div class="v7-kicker">SELECTED MARKET</div><h2>Inspect · audit · paper trade</h2></div><button class="ghost-btn" id="addOpeningBtn">Import opening position</button></div>${renderBrokerMarketPanel()}`:''}
     ${renderPaperOrders()}
@@ -896,7 +920,7 @@ function wireScreen(){
   $$('[data-mark]').forEach(b=>b.onclick=()=>setMark(b.dataset.mark));
   $$('[data-del-tx]').forEach(b=>b.onclick=()=>deleteTx(b.dataset.delTx));
   $$('[data-market-id]').forEach(b=>b.onclick=()=>{const id=b.dataset.marketId; if(currentSection==='aimirror') mirrorFocus=id; else if(id!=='all'){selectedMarketId=id; if(currentSection==='home') currentSection='broker';} render();});
-  $$('[data-market-open]').forEach(b=>b.onclick=()=>{selectedMarketId=b.dataset.marketOpen; nav('broker'); setTimeout(()=>document.querySelector('.market-focus')?.scrollIntoView({behavior:'smooth',block:'start'}),20);});
+  $$('[data-market-open]').forEach(b=>b.onclick=async()=>{let asset=(marketUniverse||[]).find(x=>x.id===b.dataset.marketOpen);if(asset&&categoryOfKind(asset.kind)==='Crypto')asset=await resolveCryptoAsset(asset);selectedMarketId=asset?.id||b.dataset.marketOpen;selectedAsset=asset?.symbol||selectedAsset;nav('broker');setTimeout(()=>document.querySelector('.market-focus')?.scrollIntoView({behavior:'smooth',block:'start'}),20);});
   $('#aiMirrorFocus')?.addEventListener('change',e=>{mirrorFocus=e.target.value;});
   $('#runAIMirrorBtn')?.addEventListener('click',(e)=>runAIMirror(e));
   $('#runAIMirrorWholeBtn')?.addEventListener('click',(e)=>{mirrorFocus='all'; const sel=$('#aiMirrorFocus'); if(sel)sel.value='all'; runAIMirror(e);});
@@ -922,14 +946,16 @@ function wireScreen(){
   $('#refreshCommercialBtn')?.addEventListener('click',async()=>{await loadState();nav('settings');toast('Subscription status refreshed.');});
   $('#researchOpenAdvisor')?.addEventListener('click',()=>openAdvisor('Insight')); $$('[data-insight-pane]').forEach(b=>b.onclick=()=>{insightPane=b.dataset.insightPane;render();});
   $('#discardEvolutionBtn')?.addEventListener('click',discardEvolution);
-  const pickAssetFromBtn=(b)=>{
+  const pickAssetFromBtn=async(b)=>{
     if(!b) return;
     const id=b.dataset.assetPick; const sym=b.dataset.assetPickSymbol;
-    selectedMarketId=id; brokerSearch=''; selectedAsset=sym||selectedAsset;
+    let asset=(marketUniverse||[]).find(x=>x.id===id||x.symbol===sym);
+    if(asset && categoryOfKind(asset.kind)==='Crypto') asset=await resolveCryptoAsset(asset);
+    selectedMarketId=asset?.id||id; brokerSearch=''; selectedAsset=asset?.symbol||sym||selectedAsset;
     render();
     setTimeout(()=>document.querySelector('.market-focus,.asset-hero')?.scrollIntoView({behavior:'smooth',block:'start'}),30);
   };
-  $('#brokerSearchInput')?.addEventListener('input',e=>{brokerSearch=e.target.value; render(); const el=$('#brokerSearchInput'); if(el){el.focus(); try{const n=el.value.length; el.setSelectionRange(n,n);}catch{}}});
+  $('#brokerSearchInput')?.addEventListener('input',e=>{brokerSearch=e.target.value; render(); const el=$('#brokerSearchInput'); if(el){el.focus(); try{const n=el.value.length; el.setSelectionRange(n,n);}catch{}} clearTimeout(cryptoSearchTimer); if(brokerCategory==='Crypto'||brokerSearch.trim().length>=2){cryptoSearchTimer=setTimeout(async()=>{await loadCryptoCatalog(brokerSearch,{append:false});render();const x=$('#brokerSearchInput');if(x){x.focus();try{x.setSelectionRange(x.value.length,x.value.length)}catch{}}},260);}});
   $('#brokerSearchInput')?.addEventListener('keydown',e=>{
     if(e.key==='Enter'){
       e.preventDefault();
@@ -942,7 +968,8 @@ function wireScreen(){
   $('#addOpeningBtn2')?.addEventListener('click',()=>transactionDialog(true));
   $('#openMarketLabsBtn')?.addEventListener('click',()=>{document.getElementById('marketLabsAnchor')?.scrollIntoView({behavior:'smooth',block:'start'});});
   $$('[data-gate-expand]').forEach(b=>b.onclick=()=>{const d=b.parentElement?.querySelector('.gate-soft-details'); if(d) d.classList.toggle('hidden');});
-  $$('[data-broker-cat]').forEach(b=>b.onclick=()=>{brokerCategory=b.dataset.brokerCat||'ALL'; render();});
+  $$('[data-broker-cat]').forEach(b=>b.onclick=async()=>{brokerCategory=b.dataset.brokerCat||'ALL'; if(brokerCategory==='Crypto') await loadCryptoCatalog('',{append:false}); render();});
+  $('#loadMoreCryptoBtn')?.addEventListener('click',async e=>{loading(e.currentTarget,true,'Loading');await loadCryptoCatalog(brokerSearch,{append:true});render();});
   $('#homeAskHades')?.addEventListener('click',()=>openAdvisor('Home'));
   $$('[data-watch-toggle]').forEach(b=>b.onclick=async e=>{e.preventDefault();e.stopPropagation();try{const r=await api('portfolio',{method:'POST',body:JSON.stringify({action:'toggleWatchlist',symbol:b.dataset.watchToggle})});state.watchlist=r.watchlist||[];render();toast(state.watchlist.includes(b.dataset.watchToggle)?`${b.dataset.watchToggle} added to watchlist.`:`${b.dataset.watchToggle} removed from watchlist.`)}catch(err){toast(err.message)}});
   $$('[data-cancel-order]').forEach(b=>b.onclick=async e=>{e.preventDefault();e.stopPropagation();try{await api('portfolio',{method:'POST',body:JSON.stringify({action:'cancelOrder',id:b.dataset.cancelOrder})});await loadState();nav('broker');toast('Paper order cancelled.')}catch(err){toast(err.message)}});

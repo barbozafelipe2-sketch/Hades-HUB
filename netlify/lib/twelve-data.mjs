@@ -1,6 +1,7 @@
 import { getEnv } from './env.mjs';
 const BASE='https://api.twelvedata.com';
 const MAP={BTC:'BTC/USD',ETH:'ETH/USD'};
+const CRYPTO_CANONICAL_RE=/^([A-Z0-9]{1,18})-USD$/;
 /** Tiny-plan friendly defaults: low concurrency + spacing so ~8/min plans don't 429 as hard. */
 const DEFAULT_QUOTE_CONCURRENCY=Math.max(1,Math.min(2,Number(getEnv('HADES_TWELVE_QUOTE_CONCURRENCY',2))));
 const DEFAULT_SERIES_CONCURRENCY=Math.max(1,Math.min(2,Number(getEnv('HADES_TWELVE_SERIES_CONCURRENCY',1))));
@@ -8,7 +9,8 @@ const DEFAULT_BATCH_GAP_MS=Math.max(250,Math.min(400,Number(getEnv('HADES_TWELVE
 
 function key(){ return String(getEnv('TWELVE_DATA_API_KEY')).trim(); }
 export function twelveConfigured(){ return !!key(); }
-export function twelveSymbol(symbol){ const s=String(symbol||'').trim().toUpperCase(); return MAP[s]||s; }
+export function twelveSymbol(symbol){ const s=String(symbol||'').trim().toUpperCase(); const m=s.match(CRYPTO_CANONICAL_RE); return m?`${m[1]}/USD`:(MAP[s]||s); }
+export function twelveIsCryptoSymbol(symbol){ const s=String(symbol||'').trim().toUpperCase(); return !!MAP[s] || CRYPTO_CANONICAL_RE.test(s); }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 async function td(path,params={},timeoutMs=9000){
   if(!key()) throw new Error('TWELVE_DATA_API_KEY_MISSING');
@@ -24,6 +26,17 @@ async function td(path,params={},timeoutMs=9000){
   }catch(e){ if(e?.name==='AbortError') throw new Error('TWELVE_DATA_TIMEOUT'); throw e; }
   finally{ clearTimeout(timer); }
 }
+export async function twelveCryptoCatalog({timeoutMs=12000}={}){
+  const d=await td('/cryptocurrencies',{},Math.max(1000,Math.min(15000,Number(timeoutMs)||12000)));
+  const rows=Array.isArray(d?.data)?d.data:[];
+  return rows.slice(0,25000).map(row=>({
+    symbol:String(row?.symbol||'').toUpperCase(),
+    currencyBase:String(row?.currency_base||'').trim(),
+    currencyQuote:String(row?.currency_quote||'').trim(),
+    availableExchanges:Array.isArray(row?.available_exchanges)?row.available_exchanges.slice(0,100):[]
+  })).filter(row=>row.symbol);
+}
+
 export async function twelveQuote(symbol,{timeoutMs=9000}={}){
   const requested=String(symbol||'').toUpperCase(); const vendor=twelveSymbol(requested);
   const d=await td('/quote',{symbol:vendor},Math.max(250,Math.min(9000,Number(timeoutMs)||9000)));
@@ -32,7 +45,7 @@ export async function twelveQuote(symbol,{timeoutMs=9000}={}){
 }
 export async function twelveSeries(symbol,{outputsize=32,interval='1day',startDate=null,endDate=null}={}){
   const requested=String(symbol||'').toUpperCase(); const vendor=twelveSymbol(requested);
-  const params={symbol:vendor,interval,outputsize:Math.max(2,Math.min(90,Number(outputsize)||32)),order:'ASC',timezone:'America/New_York'};
+  const params={symbol:vendor,interval,outputsize:Math.max(2,Math.min(90,Number(outputsize)||32)),order:'ASC',timezone:twelveIsCryptoSymbol(requested)?'UTC':'America/New_York'};
   if(startDate) params.start_date=String(startDate).slice(0,10);
   if(endDate) params.end_date=`${String(endDate).slice(0,10)} 23:59:59`;
   const d=await td('/time_series',params);
@@ -73,6 +86,6 @@ export async function twelveSeriesBundle(symbols,{outputsize=32,concurrency=DEFA
     const batch=list.slice(i,i+conc); await Promise.all(batch.map(async s=>{try{series[s]=(await twelveSeries(s,{outputsize})).points}catch(e){series[s]=[];errors.push({symbol:s,error:String(e.message||e).slice(0,180)})}}));
   }
   const ready=Object.values(series).filter(v=>v.length>=2).length; if(!ready) throw new Error(`TWELVE_DATA_SERIES_FAILED:${errors.slice(0,3).map(e=>e.error).join('|')}`);
-  return {asOf:new Date().toISOString().slice(0,10),generatedAt:new Date().toISOString(),grade:'licensed_market_data',disclaimer:'Price history supplied by Twelve Data. Exchange coverage and entitlement depend on the Twelve Data plan.',provider:'twelve_data',series,meta:{readySymbols:ready,findings:errors.map(e=>`${e.symbol}:${e.error}`).slice(0,12),market_source:'twelve_data',fallback_used:false,throttle:{concurrency:conc,batchGapMs:gap},partial:Number.isFinite(deadlineAt)&&Date.now()>=deadlineAt}};
+  return {asOf:new Date().toISOString().slice(0,10),generatedAt:new Date().toISOString(),grade:'licensed_market_data',disclaimer:'Price history supplied by Twelve Data. Exchange coverage and entitlement depend on the Twelve Data plan.',provider:'twelve_data',series,meta:{readySymbols:ready,findings:errors.map(e=>`${e.symbol}:${e.error}`).slice(0,18),market_source:'twelve_data',fallback_used:false,throttle:{concurrency:conc,batchGapMs:gap},partial:Number.isFinite(deadlineAt)&&Date.now()>=deadlineAt}};
 }
 export async function twelveHealth(){ const t=Date.now(); if(!key()) return {provider:'twelve_data',keyDetected:false,requestOk:false,authOk:false,latencyMs:0,lastError:'TWELVE_DATA_API_KEY_MISSING'}; try{const q=await twelveQuote('SPY');return {provider:'twelve_data',keyDetected:true,requestOk:true,authOk:true,latencyMs:Date.now()-t,lastError:null,sample:{symbol:q.symbol,price:q.price,asOf:q.asOf}}}catch(e){const msg=String(e.message||e); const authFail=/MISSING|REJECTED|401|403|invalid.?api.?key/i.test(msg); return {provider:'twelve_data',keyDetected:true,requestOk:false,authOk:!authFail,latencyMs:Date.now()-t,lastError:msg.slice(0,240)}} }
