@@ -205,6 +205,14 @@ export async function deleteKey(key){
   if(dataBackend()==='postgres'&&databaseBackedKey(key)) return deleteTenantRecord(scopedTenantId(tenantIdRequired()),String(key));
   return removeKey(key,{system:false});
 }
+export async function purgeCurrentTenantData({maxKeys=12000}={}){
+  tenantIdRequired();
+  const found=await listKeys('');
+  if(found.length>Math.max(1,Number(maxKeys)||12000)) throw new Error('TENANT_PURGE_TOO_MANY_KEYS');
+  let removed=0;
+  for(const key of found){ await deleteKey(key); removed++; }
+  return {removed};
+}
 
 // System APIs are authoritative in Postgres for hosted commercial mode.
 export async function getSystemJSON(key,fallback=null){

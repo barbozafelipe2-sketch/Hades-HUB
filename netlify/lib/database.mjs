@@ -240,3 +240,23 @@ export async function getUsageSummary(tenantId,period,limit=null){
   else { const rows=await db.sql`SELECT COALESCE(SUM(units),0)::int AS used FROM kairos_usage_events WHERE tenant_id=${tid} AND period=${per}`; used=Number(rows?.[0]?.used||0); }
   return {period:per,used,limit:cap,remaining:Math.max(0,cap-used),unlimited:false};
 }
+
+export async function purgeTenantRelationalData(tenantId){
+  const tid=String(tenantId||'').slice(0,96); if(!tid) throw new Error('TENANT_ID_REQUIRED');
+  const databaseHandle=await database();
+  if(!databaseHandle){
+    let auditRemoved=0,usageRemoved=0;
+    for(let i=localAudit.length-1;i>=0;i--){ if(localAudit[i]?.tenantId===tid){ localAudit.splice(i,1); auditRemoved++; } }
+    for(const [key,row] of [...localUsage.entries()]){ if(row?.tenantId===tid){ localUsage.delete(key); usageRemoved++; } }
+    return {auditRemoved,usageRemoved};
+  }
+  const client=await databaseHandle.pool.connect();
+  try{
+    await client.query('BEGIN');
+    const audit=await client.query('DELETE FROM kairos_audit_events WHERE tenant_id=$1',[tid]);
+    const usage=await client.query('DELETE FROM kairos_usage_events WHERE tenant_id=$1',[tid]);
+    await client.query('COMMIT');
+    return {auditRemoved:Number(audit.rowCount||0),usageRemoved:Number(usage.rowCount||0)};
+  }catch(e){ try{await client.query('ROLLBACK');}catch{} throw e; }
+  finally{ client.release(); }
+}

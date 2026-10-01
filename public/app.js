@@ -37,6 +37,9 @@ function friendlyError(msg){
   if(/TRIAL_EXPIRED/i.test(m)) return 'Your KAIROS trial has ended. Open Settings → Subscription & Usage to activate access.';
   if(/SUBSCRIPTION_REQUIRED/i.test(m)) return 'An active KAIROS subscription is required for this action. Open Settings → Subscription & Usage.';
   if(/USAGE_BUDGET_EXCEEDED/i.test(m)) return 'This workspace reached its monthly AI usage limit. Your paper data remains available; AI workflows resume when the limit resets or the plan changes.';
+  if(/PRIVATE_OWNER_DELETE_BLOCKED/i.test(m)) return 'The original private owner workspace is protected from self-service deletion.';
+  if(/DELETION_CONFIRMATION_REQUIRED/i.test(m)) return 'Deletion confirmation phrase did not match.';
+  if(/STRIPE_CANCELLATION_FAILED/i.test(m)) return 'KAIROS could not confirm subscription cancellation, so no workspace purge was performed. Try again or contact support.';
   if(/FRESH_MARK_REQUIRED/i.test(m)) return 'Refresh market prices before placing a Market order. KAIROS will not execute against a stale mark.';
   if(/INSUFFICIENT_TRACKED_CASH|INSUFFICIENT_BUYING_POWER/i.test(m)) return 'Not enough simulated buying power for this order.';
   if(/SELL_EXCEEDS_POSITION|INSUFFICIENT_HOLDINGS_FOR_ORDER/i.test(m)) return 'That sell exceeds the shares currently available in Wallet Mirror.';
@@ -180,6 +183,19 @@ async function checkSession(){
   }catch{ showLogin(); }
 }
 
+async function deleteWorkspace(){
+  if(state.auth?.user?.role!=='owner') return toast('Only the workspace owner can delete it.');
+  if(String(state.commercial?.tenant?.plan||'').toLowerCase()==='private') return toast('The original private owner workspace is protected from self-service deletion.');
+  const ok=confirm('This permanently deletes the KAIROS workspace, paper ledger, Decision History, mirrors, usage history and account mappings. Any active Stripe subscription will be cancelled first. Export a backup before continuing. Continue?');
+  if(!ok) return;
+  const phrase=prompt('Type exactly: DELETE MY KAIROS WORKSPACE');
+  if(phrase!=='DELETE MY KAIROS WORKSPACE') return toast('Deletion cancelled — confirmation phrase did not match.');
+  try{
+    const r=await api('privacy-delete',{method:'POST',body:JSON.stringify({confirmation:phrase}),timeoutMs:30000});
+    alert(r.message||'Workspace deletion queued. Access is now blocked.');
+    location.reload();
+  }catch(e){ toast(e.message||'Could not queue workspace deletion.'); }
+}
 async function exportTrackRecord(){
   try{
     const r=await api('track-record',{method:'GET',timeoutMs:20000});
@@ -917,6 +933,12 @@ function renderSettings(){
     <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">WORKSPACE</span><h2>${esc(state.auth?.tenant?.name||'Kairos Workspace')}</h2></div></div><p class="report-text">Tenant-isolated paper workspace · ${esc(state.auth?.user?.role||'member')} access · ${esc(commercial.tenant?.plan||state.auth?.tenant?.plan||'private')} plan.</p><div class="tiny">Portfolio, paper orders, Decision History, mirrors and settings are isolated to this workspace.</div></section>
 
     <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">SUBSCRIPTION & USAGE</span><h2>${esc(String(access.status||'active').replaceAll('_',' '))}</h2></div><span class="badge ${access.allowed!==false?'action':'abstain'}">${access.allowed!==false?'ACCESS ACTIVE':'ACTION REQUIRED'}</span></div><div class="v7-setting-rows"><div><span>Plan</span><strong>${esc(commercial.tenant?.plan||'private')}</strong></div><div><span>AI units · ${esc(usage.period||'current month')}</span><strong>${usage.limit==null?'UNLIMITED':`${Number(usage.used||0)} / ${Number(usage.limit||0)}`}</strong></div><div><span>Renewal / trial end</span><strong>${access.currentPeriodEnd?esc(String(access.currentPeriodEnd).slice(0,10)):'—'}</strong></div><div><span>Billing provider</span><strong>${commercial.billing?.provider==='stripe'?'STRIPE':commercial.tenant?.plan==='private'?'PRIVATE OWNER':'NOT LINKED'}</strong></div></div>${state.auth?.user?.role==='owner'&&commercial.tenant?.plan!=='private'?`<div class="action-row" style="margin-top:14px">${commercial.billing?.customerLinked?`<button class="primary-btn" id="billingPortalBtn">Manage billing</button>`:`<button class="primary-btn" id="billingCheckoutBtn">Start / activate subscription</button>`}<button class="ghost-btn" id="refreshCommercialBtn">Refresh status</button></div>`:''}<div class="tiny" style="margin-top:10px">AI units are internal cost-control units, not tokens or dollars. Replayed jobs with the same idempotency key do not consume twice.</div></section>
+
+    <section class="v7-card v7-span-2"><div class="v7-section-head"><div><span class="v7-kicker">DATA & PRIVACY</span><h2>Export or delete your workspace.</h2></div></div>
+    <p class="report-text">Workspace backup and Track Record exports are available before deletion. Customer workspace deletion cancels an active Stripe subscription first, then removes tenant content, usage/audit rows and KAIROS account mappings. Netlify Identity users are deleted through the server-side admin API.</p>
+    <div class="action-row"><button class="ghost-btn" id="privacyExportBtn">Export workspace backup</button><button class="ghost-btn" id="privacyTrackBtn">Export track record</button>${state.auth?.user?.role==='owner'&&String(commercial.tenant?.plan||'').toLowerCase()!=='private'?'<button class="danger-btn" id="deleteWorkspaceBtn">Delete workspace</button>':''}</div>
+    ${state.auth?.privacyUrl?'<div class="tiny" style="margin-top:10px"><a href="'+esc(state.auth.privacyUrl)+'" target="_blank" rel="noopener">Privacy policy</a></div>':''}
+    <div class="tiny" style="margin-top:10px">${String(commercial.tenant?.plan||'').toLowerCase()==='private'?'The original private owner workspace is protected from self-service deletion by default.':'Deletion is irreversible after the background purge completes.'}</div></section>
   </div></section>`;
 }
 
@@ -961,6 +983,9 @@ function wireScreen(){
   $('#billingPortalBtn')?.addEventListener('click',openBillingPortal);
   $('#refreshCommercialBtn')?.addEventListener('click',async()=>{await loadState();nav('settings');toast('Subscription status refreshed.');});
   $('#exportTrackRecordBtn')?.addEventListener('click',exportTrackRecord);
+  $('#privacyExportBtn')?.addEventListener('click',exportBackup);
+  $('#privacyTrackBtn')?.addEventListener('click',exportTrackRecord);
+  $('#deleteWorkspaceBtn')?.addEventListener('click',deleteWorkspace);
   $('#researchOpenAdvisor')?.addEventListener('click',()=>openAdvisor('Insight')); $$('[data-insight-pane]').forEach(b=>b.onclick=()=>{insightPane=b.dataset.insightPane;render();});
   $('#discardEvolutionBtn')?.addEventListener('click',discardEvolution);
   const pickAssetFromBtn=async(b)=>{

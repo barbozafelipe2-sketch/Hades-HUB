@@ -100,3 +100,13 @@ Implemented in this stage:
 - Evidence remains BUILDING until at least 30 complete snapshots and 10 matured actionable decisions exist; this label is descriptive and not a statistical validation claim.
 
 Still required before public paid launch: deletion/privacy lifecycle, legal/claims review, onboarding/landing release gates, production smoke tests and final launch controls.
+
+## Hard Fix 4/5 — privacy and deletion lifecycle
+
+- Customer workspace deletion is owner-only, explicit and asynchronous.
+- Stripe cancellation precedes purge so a deleted customer is not silently left on an active renewal.
+- Financial state, historical artifacts, usage/audit rows, account mappings and the Netlify Identity user are included in the technical deletion path.
+- The purge leaves only a random deletion receipt with counts/timestamp and no tenant/user/email identifiers.
+- The original private owner workspace remains protected from accidental self-service deletion.
+
+This implements the technical lifecycle. Final privacy-policy wording, statutory retention requirements and jurisdiction-specific obligations still require legal review before public launch.

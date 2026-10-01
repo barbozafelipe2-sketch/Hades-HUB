@@ -6,6 +6,7 @@ import {
   confirmEmail as sdkConfirmEmail,
   logout as sdkLogout,
   verifyRequestOrigin as sdkVerifyRequestOrigin,
+  admin as sdkAdmin,
 } from '@netlify/identity';
 import { isNetlifyRuntime } from './env.mjs';
 
@@ -17,6 +18,7 @@ const productionAdapter=Object.freeze({
   confirmEmail:sdkConfirmEmail,
   logout:sdkLogout,
   verifyRequestOrigin:sdkVerifyRequestOrigin,
+  adminDeleteUser:(userId)=>sdkAdmin.deleteUser(userId),
 });
 let testAdapter=null;
 
@@ -34,6 +36,7 @@ export async function identitySignup(...args){ return await fn('signup')(...args
 export async function identityConfirmEmail(...args){ return await fn('confirmEmail')(...args); }
 export async function identityLogout(...args){ return await fn('logout')(...args); }
 export function verifyIdentityRequestOrigin(...args){ return fn('verifyRequestOrigin')(...args); }
+export async function identityAdminDeleteUser(...args){ return await fn('adminDeleteUser')(...args); }
 
 // Unit-test seam only. Hosted Netlify runtimes may never replace the official SDK adapter.
 export function setIdentityAdapterForTests(adapter){

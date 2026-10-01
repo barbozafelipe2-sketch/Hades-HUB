@@ -84,3 +84,11 @@
 - Added SPY-relative paper return, data coverage, checkpoint scorecards at 1/7/30/90/365 days, and explicit exclusion of non-point-in-time outcomes.
 - Added SHA-256 evidence hashing and authenticated JSON export. The product explicitly states that this is an integrity check, not an external audit or third-party attestation.
 - Added claims guardrails: paper-only, descriptive, non-predictive wording; no alpha or future-return claim is generated from the ledger.
+
+## Commercial Hard Fix 4/5 — privacy lifecycle
+- Added owner-only workspace deletion with exact confirmation phrase and immediate access lock.
+- Deletion runs as an internal authenticated background job so long tenant purges cannot be cut off by a browser request timeout.
+- Active Stripe subscriptions are cancelled before customer data purge; cancellation failure stops the purge.
+- Tenant state, Blobs, usage rows, audit rows, login/billing mappings and Netlify Identity users are removed; only an anonymous deletion receipt remains.
+- The original private owner workspace is protected from self-service deletion unless an explicit server-side override is enabled.
+- Added Data & Privacy controls for workspace backup, Track Record export and deletion.

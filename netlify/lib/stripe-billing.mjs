@@ -49,6 +49,19 @@ export async function createStripePortal({customerId}={}){
   return await stripePost('billing_portal/sessions',{customer:customerId,return_url:`${appUrl()}/?billing=portal-return`});
 }
 
+
+export async function cancelStripeSubscription({subscriptionId}={}){
+  const id=String(subscriptionId||'').trim(); if(!/^sub_[A-Za-z0-9]+$/.test(id)) throw new Error('STRIPE_SUBSCRIPTION_ID_INVALID');
+  const key=secret(); if(!key) throw new Error('STRIPE_NOT_CONFIGURED');
+  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),10000);
+  try{
+    const res=await fetch('https://api.stripe.com/v1/subscriptions/'+encodeURIComponent(id),{method:'DELETE',headers:{authorization:'Bearer '+key},signal:controller.signal});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error('STRIPE_CANCEL_'+res.status+':'+String(data?.error?.code||data?.error?.message||'request_failed').slice(0,180));
+    return data;
+  }finally{ clearTimeout(timer); }
+}
+
 function timingSafeHex(a,b){
   if(!/^[0-9a-f]+$/i.test(a)||!a||!b) return false;
   const A=Buffer.from(a,'hex'),B=Buffer.from(b,'hex'); return A.length===B.length&&crypto.timingSafeEqual(A,B);
