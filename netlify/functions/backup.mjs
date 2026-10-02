@@ -11,6 +11,7 @@ import { getJSON, setJSON, listKeys, deleteKey, withKeyLock, pruneJSONCollection
 import { derivePortfolio, normalizeSymbol, validateTransactionLedger } from '../lib/portfolio.mjs';
 import { normalizeSymbolList } from '../lib/input.mjs';
 import { auditCommercialEvent } from '../lib/commercial-control.mjs';
+import { listDecisionResponseHistory, replaceDecisionResponseHistory } from '../lib/database.mjs';
 
 const MAX_RESTORE_BYTES=5*1024*1024;
 const SAFE_ID=/^[A-Za-z0-9._:-]{1,160}$/;
@@ -83,6 +84,18 @@ export function normalizeBackupPayload(b={}){
   for(const o of paperOrders){ if(o.status==='FILLED' && (!o.transactionId || !txIds.has(o.transactionId))) throw new Error(`FILLED_ORDER_TRANSACTION_MISSING:${o.id}`); }
   const decisions=Array.isArray(b.decisions)?b.decisions.map(safeDecision):[]; if(decisions.length>500) throw new Error('TOO_MANY_DECISIONS');
   const decisionIds=new Set(); for(const d of decisions){ if(decisionIds.has(d.id)) throw new Error('DUPLICATE_DECISION_ID'); decisionIds.add(d.id); }
+  const paperOrderIds=new Map(paperOrders.map(o=>[o.id,o]));
+  const decisionById=new Map(decisions.map(d=>[d.id,d]));
+  const decisionResponses=Array.isArray(b.decisionResponses)?b.decisionResponses.slice(-10000).map(r=>{
+    if(!obj(r)||!SAFE_ID.test(String(r.id||''))||!SAFE_ID.test(String(r.decisionId||''))||!SAFE_ID.test(String(r.idempotencyKey||'')))throw new Error('INVALID_DECISION_RESPONSE');
+    const decision=decisionById.get(String(r.decisionId));if(!decision)throw new Error('DECISION_RESPONSE_DECISION_MISSING');
+    const response=String(r.response||'');if(!['followed','overrode','no_action'].includes(response))throw new Error('INVALID_DECISION_RESPONSE');
+    const paperOrderId=r.paperOrderId==null||r.paperOrderId===''?null:String(r.paperOrderId);
+    if(paperOrderId){const order=paperOrderIds.get(paperOrderId);if(!order||order.symbol!==normalizeSymbol(decision.asset))throw new Error('INVALID_DECISION_RESPONSE_ORDER');}
+    return {id:String(r.id),decisionId:String(r.decisionId),response,paperOrderId,idempotencyKey:String(r.idempotencyKey),createdAt:safeDateTime(r.createdAt)||new Date(0).toISOString()};
+  }):[];
+  if(decisionResponses.length>10000)throw new Error('TOO_MANY_DECISION_RESPONSES');
+  const responseIds=new Set(),responseKeys=new Set();for(const r of decisionResponses){if(responseIds.has(r.id)||responseKeys.has(r.idempotencyKey))throw new Error('DUPLICATE_DECISION_RESPONSE');responseIds.add(r.id);responseKeys.add(r.idempotencyKey);}
   const worldState=b.worldState?safeWorldState(b.worldState):null;
   return {
     version:5,
@@ -90,7 +103,7 @@ export function normalizeBackupPayload(b={}){
     profile:sanitizeProfile(b.profile||{}), settings:sanitizeSettings(b.settings||{}),
     transactions,marks,paperOrders,watchlist:normalizeSymbolList(Array.isArray(b.watchlist)?b.watchlist:[],{max:100}),
     worldState,traceStatus:b.traceStatus?boundedObject(b.traceStatus,'TRACE_STATUS',128000):null,
-    decisions,
+    decisions,decisionResponses,
     snapshots:safePrefixMap(b.snapshots,'snapshots'),traces:safePrefixMap(b.traces,'traces'),worldStates:safePrefixMap(b.worldStates,'worldStates'),
     aiMirror:b.aiMirror?boundedObject(b.aiMirror,'AI_MIRROR',512000):null,
     aiMirrorHistory:Array.isArray(b.aiMirrorHistory)?b.aiMirrorHistory.slice(-250).map(v=>boundedObject(v,'AI_MIRROR_HISTORY_ITEM',512000)):[],
@@ -100,16 +113,16 @@ export function normalizeBackupPayload(b={}){
 }
 
 async function exportPrefix(prefix){ const keys=await listKeys(prefix); const out={}; for(const k of keys){ const v=await getJSON(k,null); if(v!==null) out[k]=v; } return out; }
-async function captureBackup(){
+async function captureBackup(tenantId){
   const idx=await getDecisionIndex(); const decisions=[];
   for(const id of idx.slice(-500)){ const d=await getJSON(`decisions/${id}`,null); if(d) decisions.push(d); }
   const [snapshots,traces,worldStates]=await Promise.all([exportPrefix('snapshots/'),exportPrefix('traces/'),exportPrefix('trace/world-state/')]);
-  return {version:5,exportedAt:new Date().toISOString(),profile:await getProfile(),settings:await getSettings(),transactions:await getTransactions(),marks:await getMarks(),paperOrders:await getPaperOrders(),watchlist:await getWatchlist(),worldState:await getWorldState(),traceStatus:await getTraceStatus(),decisions,snapshots,traces,worldStates,aiMirror:await getAIMirror(),aiMirrorHistory:await getAIMirrorHistory(),walletMirror:await getWalletMirror(),evolution:await getEvolutionState()};
+  return {version:5,exportedAt:new Date().toISOString(),profile:await getProfile(),settings:await getSettings(),transactions:await getTransactions(),marks:await getMarks(),paperOrders:await getPaperOrders(),watchlist:await getWatchlist(),worldState:await getWorldState(),traceStatus:await getTraceStatus(),decisions,decisionResponses:await listDecisionResponseHistory(tenantId),snapshots,traces,worldStates,aiMirror:await getAIMirror(),aiMirrorHistory:await getAIMirrorHistory(),walletMirror:await getWalletMirror(),evolution:await getEvolutionState()};
 }
 async function clearPrefix(prefix){ for(const k of await listKeys(prefix)) await deleteKey(k); }
 async function setOrDelete(key,value){ if(value==null) await deleteKey(key); else await setJSON(key,value); }
 
-async function applyNormalizedBackup(b){
+async function applyNormalizedBackup(b,tenantId){
   // Collections that can contain orphaned records are replaced, never overlaid.
   await Promise.all([clearPrefix('decisions/'),clearPrefix('snapshots/'),clearPrefix('traces/'),clearPrefix('trace/world-state/')]);
   await saveProfile(b.profile); await saveSettings(b.settings);
@@ -117,6 +130,7 @@ async function applyNormalizedBackup(b){
   if(b.traceStatus) await saveTraceStatus(b.traceStatus); else await deleteKey('trace/status');
   await setOrDelete('mirror/ai/latest',b.aiMirror); await setJSON('mirror/ai/history',b.aiMirrorHistory||[]); await setOrDelete('mirror/wallet/latest',b.walletMirror); await setOrDelete('evolution/state',b.evolution);
   for(const d of b.decisions) await setJSON(`decisions/${d.id}`,d); await saveDecisionIndex(b.decisions.map(d=>d.id));
+  await replaceDecisionResponseHistory({tenantId,decisions:b.decisions,responses:b.decisionResponses||[]});
   for(const group of Object.keys(RESTORE_PREFIXES)) for(const [k,v] of Object.entries(b[group]||{})) await setJSON(k,v);
   if(b.worldState){ await setJSON('trace/world-state/latest',b.worldState); await setJSON(`trace/world-state/${b.worldState.date}`,b.worldState); }
 }
@@ -125,7 +139,7 @@ export default async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req);
   if(!session) return json({error:'UNAUTHORIZED'},401);
-  if(req.method==='GET') return json(await captureBackup());
+  if(req.method==='GET') return json(await captureBackup(session.tenantId));
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
   try{ requireRole(session,['owner','admin']); }catch{ return json({error:'FORBIDDEN'},403); }
   let raw; try{ raw=await readJSON(req,{maxBytes:MAX_RESTORE_BYTES}); }catch(e){ return json({error:String(e.message||e)},413); }
@@ -134,11 +148,11 @@ export default async (req,context)=>{
     const restoreId=crypto.randomUUID(); const snapshotKey=`restore/snapshots/${restoreId}`; const stagingKey=`restore/staging/${restoreId}`; const statusKey=`restore/status/${restoreId}`;
     let previous;
     try{
-      previous=normalizeBackupPayload(await captureBackup());
+      previous=normalizeBackupPayload(await captureBackup(session.tenantId));
       await setJSON(snapshotKey,{...previous,recoverySnapshot:true,restoreId});
       await setJSON(stagingKey,{...incoming,restoreId,stagedAt:new Date().toISOString()});
       await setJSON(statusKey,{restoreId,status:'APPLYING',startedAt:new Date().toISOString(),snapshotKey});
-      await applyNormalizedBackup(incoming);
+      await applyNormalizedBackup(incoming,session.tenantId);
       await setJSON(statusKey,{restoreId,status:'COMPLETE',startedAt:(await getJSON(statusKey,{}))?.startedAt||null,finishedAt:new Date().toISOString(),snapshotKey});
       await deleteKey(stagingKey).catch(()=>{});
       await pruneJSONCollection('restore/snapshots/',{maxEntries:5,minIntervalMs:0,timestampFields:['exportedAt']}).catch(()=>{});
@@ -147,7 +161,7 @@ export default async (req,context)=>{
       return json({ok:true,restoreId,recoverySnapshotKey:snapshotKey,version:5});
     }catch(e){
       let rollbackSucceeded=false; let rollbackError=null;
-      if(previous){ try{ await applyNormalizedBackup(previous); rollbackSucceeded=true; }catch(rb){ rollbackError=String(rb?.message||rb); } }
+      if(previous){ try{ await applyNormalizedBackup(previous,session.tenantId); rollbackSucceeded=true; }catch(rb){ rollbackError=String(rb?.message||rb); } }
       try{ await setJSON(statusKey,{restoreId,status:'FAILED',finishedAt:new Date().toISOString(),error:String(e?.message||e),rollbackSucceeded,rollbackError,snapshotKey}); }catch{}
       await auditCommercialEvent(session,'backup.restore_failed',{requestId:context?.requestId,details:{action:'restore',result:rollbackSucceeded?'rolled_back':'failed'}}).catch(()=>{});
       return json({error:'BACKUP_RESTORE_FAILED',detail:String(e?.message||e),restoreId,rollbackSucceeded,rollbackError,recoverySnapshotKey:previous?snapshotKey:null},500);

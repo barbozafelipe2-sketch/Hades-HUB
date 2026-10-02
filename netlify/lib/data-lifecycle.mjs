@@ -89,7 +89,7 @@ export async function purgeKairosTenantData({tenantId,jobId}={}){
     mappingsRemoved+=await removeMappingsWithValue('billing/subscription/',tenantId);
     await deleteSystemKey(tenantKey(tenantId));
     await deleteSystemKey(jobKey(jobId));
-    await setSystemJSON(receiptKey(jobId),{completedAt:new Date().toISOString(),contentKeysRemoved:content.removed,auditRowsRemoved:relational.auditRemoved,usageRowsRemoved:relational.usageRemoved,identityUsersDeleted:identityDeleted});
+    await setSystemJSON(receiptKey(jobId),{completedAt:new Date().toISOString(),contentKeysRemoved:content.removed,auditRowsRemoved:relational.auditRemoved,usageRowsRemoved:relational.usageRemoved,decisionResponseRowsRemoved:relational.decisionResponseRemoved||0,identityUsersDeleted:identityDeleted});
   });
   return {contentKeysRemoved:content.removed,...relational,identityUsersDeleted:identityDeleted,mappingsRemoved};
 }

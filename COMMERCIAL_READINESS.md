@@ -8,7 +8,7 @@ KAIROS is being prepared as a web/PWA paper-research product first. This stage c
 
 The product is an **auditable decision journal with adversarial review and paper execution**. The Broker remains a paper-workspace feature; it is not the product promise. Public copy and the signed-in home screen lead with saved reviews, matured outcomes, and the Track Record state. Relative return versus SPY stays hidden as a completed result until the existing evidence thresholds are met.
 
-The record now shows monthly paper returns relative to SPY beside each month's saved review and matured outcome counts, once the existing Track Record thresholds are met. It still does not record an explicit user response to each recommendation (followed, overridden, or no paper action), nor prove that an outcome was caused by following or ignoring a review. Do not infer adherence from a nearby trade. The remaining adherence feature should store the user's declared response as a tenant-scoped audit event and link a paper order when one exists. Monthly return remains descriptive co-occurring evidence; never label the difference as a causal “cost” of ignoring a review. Willingness to pay and the final price remain unvalidated until cost-per-review and retention are measured in Preview/beta.
+The record shows monthly paper returns relative to SPY beside each month's saved review and matured outcome counts, once the existing Track Record thresholds are met. Decision Review now also records the user's explicit response (followed, overrode/changed, or no paper action) in an append-only, tenant-scoped Postgres ledger. A same-symbol paper order can be linked when one exists; the server checks tenant ownership and symbol before saving. These responses are self-reported behavior, do not establish why an order was placed, and do not prove that a review caused a trade or result. Do not infer adherence from a nearby trade. Monthly return remains descriptive co-occurring evidence; never label the difference as a causal “cost” of ignoring a review. Willingness to pay and the final price remain unvalidated until cost-per-review and retention are measured in Preview/beta.
 
 Implemented in this stage:
 
@@ -138,12 +138,13 @@ The Hard Fix 3/3 implementation and privacy/release controls are included below.
 Implemented in this stage:
 
 - Deterministic Track Record Ledger from stored snapshots and point-in-time decision outcome checkpoints.
+- Append-only user response history for each Decision Review (`followed`, `overrode`, `no_action`), with optional same-symbol paper-order linkage, tenant isolation, idempotency and explicit non-causal UI wording.
 - Paper portfolio return compared with recorded SPY over the same evidence window; the UI calls the difference relative return, never alpha.
 - Decision scorecards at 1/7/30/90/365 days with non-point-in-time observations excluded.
 - SHA-256 evidence export for change detection. This is intentionally labeled as not an external audit or third-party attestation.
 - Evidence remains BUILDING until at least 30 complete snapshots and 10 matured actionable decisions exist; this label is descriptive and not a statistical validation claim.
 
-Still required before public paid launch: deletion/privacy lifecycle, legal/claims review, onboarding/landing release gates, production smoke tests and final launch controls.
+Still required before public paid launch: legal/claims review, live service smoke tests and final launch controls. Deletion/privacy behavior is implemented but remains subject to the external privacy review listed above.
 
 ## Hard Fix 4/5 — privacy and deletion lifecycle
 

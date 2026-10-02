@@ -8,13 +8,14 @@ import { persistenceStatus, configurePersistenceForRequest } from '../lib/store.
 import { commercialStatus } from '../lib/commercial-control.mjs';
 import { DEFAULT_STRATEGY,normalizeStrategy,evaluateStrategy,diagnoseDecisions,splitScoredHoldout,MATURITY_THRESHOLD } from '../lib/evolution.mjs';
 import { buildTrackRecord } from '../lib/track-record.mjs';
+import { listDecisionResponses } from '../lib/database.mjs';
 
 export default async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req);
   if(!session) return json({error:'UNAUTHORIZED'},401);
-  const [profile,settings,portfolio,worldState,traceStatus,decisions,performance,snapshots,auth,aiMirror,walletMirror,evolution,paperOrders,watchlist,commercial]=await Promise.all([
-    getProfile(),getSettings(),getPortfolio(),getWorldState(),getTraceStatus(),getDecisions(),getPerformance(),getSnapshots(),publicAuthState(session),getAIMirror(),getWalletMirror(),getEvolutionState(),getPaperOrders(),getWatchlist(),commercialStatus(session)
+  const [profile,settings,portfolio,worldState,traceStatus,decisions,performance,snapshots,auth,aiMirror,walletMirror,evolution,paperOrders,watchlist,commercial,decisionResponses]=await Promise.all([
+    getProfile(),getSettings(),getPortfolio(),getWorldState(),getTraceStatus(),getDecisions(),getPerformance(),getSnapshots(),publicAuthState(session),getAIMirror(),getWalletMirror(),getEvolutionState(),getPaperOrders(),getWatchlist(),commercialStatus(session),listDecisionResponses(session.tenantId)
   ]);
   const providers=providerStatus();
   const marketSource=String(worldState?._meta?.market_source||'');
@@ -39,5 +40,5 @@ export default async (req,context)=>{
     live:split.maturedCount>=MATURITY_THRESHOLD
   };
   const trackRecord=buildTrackRecord({snapshots,decisions});
-  return json({profile,settings,portfolio,worldState,traceStatus,decisions,performance,snapshots:snapshots.slice(-120),trackRecord,auth,aiMirror,walletMirror,evolution:evolutionEnriched,paperOrders,watchlist,openAIStatus:openAIConnectionStatus(worldState),providers,commercial,persistence:persistenceStatus(),serverTime:new Date().toISOString()});
+  return json({profile,settings,portfolio,worldState,traceStatus,decisions,decisionResponses,performance,snapshots:snapshots.slice(-120),trackRecord,auth,aiMirror,walletMirror,evolution:evolutionEnriched,paperOrders,watchlist,openAIStatus:openAIConnectionStatus(worldState),providers,commercial,persistence:persistenceStatus(),serverTime:new Date().toISOString()});
 };

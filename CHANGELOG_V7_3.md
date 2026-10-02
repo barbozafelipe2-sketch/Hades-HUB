@@ -81,6 +81,9 @@
 - Non-USD pairs are intentionally excluded from the paper-broker catalog to keep pricing/accounting currency coherent.
 
 ## Commercial Hard Fix 3/3 — track record evidence
+- Added an append-only, tenant-scoped Decision Review response ledger for followed / overrode / no paper action, with optional same-symbol paper-order linkage and idempotent requests.
+- Added explicit UI copy that these are self-reported behavior records and do not prove causality.
+- Added an additive migration and database checks for tenant FK isolation and duplicate response replay.
 - Added deterministic Track Record Ledger built only from recorded paper snapshots and point-in-time decision outcomes.
 - Added SPY-relative paper return, data coverage, checkpoint scorecards at 1/7/30/90/365 days, and explicit exclusion of non-point-in-time outcomes.
 - Added SHA-256 evidence hashing and authenticated JSON export. The product explicitly states that this is an integrity check, not an external audit or third-party attestation.

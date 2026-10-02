@@ -8,6 +8,9 @@ await client.connect();
 try{
   const sql=await fs.readFile(new URL('../netlify/database/migrations/20261001000300_kairos-paper-ledger/migration.sql',import.meta.url),'utf8');
   await client.query(sql);
+  const responsesSql=await fs.readFile(new URL('../netlify/database/migrations/20261001000400_kairos-decision-responses/migration.sql',import.meta.url),'utf8');
+  await client.query(responsesSql);
+  await client.query('TRUNCATE decision_responses, decision_outcomes, decisions CASCADE');
   await client.query('TRUNCATE paper_transactions, paper_orders, paper_accounts CASCADE');
   await client.query("INSERT INTO paper_accounts(id,tenant_id) VALUES ('acct-a','tenant_a'),('acct-b','tenant_b')");
   await assert.rejects(()=>client.query("INSERT INTO paper_orders(id,tenant_id,account_id,idempotency_key,symbol,side,quantity,filled_quantity,status,execution_price,source,license_id) VALUES ('bad-fill','tenant_a','acct-a','bad-fill-key','AAPL','buy',1,1,'filled',100,'licensed_market_feed','operator-attested')"));
@@ -24,5 +27,15 @@ try{
   const frozen=await client.query("SELECT value,point_in_time FROM market_snapshots WHERE tenant_id='tenant_a' AND symbol='SPY'");assert.equal(Number(frozen.rows[0].value),100);assert.equal(frozen.rows[0].point_in_time,true,'fallback replay cannot replace an existing point-in-time value');
   const provenance=await client.query("SELECT column_name FROM information_schema.columns WHERE table_name='market_snapshots'");
   for(const column of ['source','asof','exchange','delay_class','license_id','point_in_time']) assert.ok(provenance.rows.some(r=>r.column_name===column));
-  console.log('database-product-hardening: PASS (tenant isolation, DB oversell guard, duplicate fill/idempotency constraints, provenance)');
+  await client.query("INSERT INTO decisions(id,tenant_id,idempotency_key,symbol) VALUES ('decision-a','tenant_a','decision-key-a','AAPL'),('decision-b','tenant_b','decision-key-b','AAPL')");
+  const responseSql="INSERT INTO decision_responses(id,tenant_id,decision_id,user_id,response,idempotency_key) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING id";
+  const firstResponse=await client.query(responseSql,['response-1','tenant_a','decision-a','user-a','followed','response-key-1']);
+  const replayResponse=await client.query(responseSql,['response-2','tenant_a','decision-a','user-a','followed','response-key-1']);
+  assert.equal(firstResponse.rowCount,1);assert.equal(replayResponse.rowCount,0,'same tenant idempotency key must create one response event');
+  await client.query(responseSql,['response-3','tenant_a','decision-a','user-a','overrode','response-key-2']);
+  await assert.rejects(()=>client.query(responseSql,['response-cross','tenant_a','decision-b','user-a','followed','response-key-cross']),/foreign key/i,'a tenant cannot attach a response to another tenant decision');
+  const visibleResponses=await client.query("SELECT response FROM decision_responses WHERE tenant_id='tenant_a' AND decision_id='decision-a'");
+  const hiddenResponses=await client.query("SELECT response FROM decision_responses WHERE tenant_id='tenant_b'");
+  assert.equal(visibleResponses.rowCount,2);assert.equal(hiddenResponses.rowCount,0,'tenant response history must remain isolated');
+  console.log('database-product-hardening: PASS (tenant isolation, DB oversell guard, idempotency, provenance and response ledger)');
 }finally{await client.end();}

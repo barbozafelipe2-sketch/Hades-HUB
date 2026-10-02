@@ -7,6 +7,7 @@ const localLocks = globalThis.__KAIROS_DB_LOCKS__ ||= new Map();
 const localAudit = globalThis.__KAIROS_DB_AUDIT__ ||= [];
 const localUsage = globalThis.__KAIROS_DB_USAGE__ ||= new Map();
 const localAIUsage = globalThis.__KAIROS_DB_AI_USAGE__ ||= new Map();
+const localDecisionResponses = globalThis.__KAIROS_DB_DECISION_RESPONSES__ ||= new Map();
 let cachedModule = null;
 let cachedDb = null;
 
@@ -209,6 +210,57 @@ export async function replacePaperMarks(tenantId,marks={}){const tid=String(tena
 export async function getRelationalPaperOrders(tenantId){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');if(!db)return clone(localPaperTenant(tid).orders);const rows=await db.sql`SELECT payload FROM paper_orders WHERE tenant_id=${tid} AND account_id=${paperAccountId} ORDER BY created_at`;return (rows||[]).map(r=>r.payload||{});}
 export async function replaceRelationalPaperOrders(tenantId,orders=[]){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');const rows=Array.isArray(orders)?orders:[];if(!db){localPaperTenant(tid).orders=clone(rows);return clone(rows);}await ensurePaperAccount(db,tid);const ids=new Set(rows.map(r=>String(r.id)));for(const r of rows){const id=String(r.id||crypto.randomUUID()),side=String(r.side||'BUY').toLowerCase(),status=String(r.status||'pending').toLowerCase()==='open'?'pending':String(r.status||'pending').toLowerCase(),payload=JSON.stringify({...r,id});await db.sql`INSERT INTO paper_orders(id,tenant_id,account_id,idempotency_key,symbol,side,quantity,filled_quantity,status,execution_price,source,asof,exchange,delay_class,license_id,point_in_time,payload,created_at,updated_at) VALUES(${id},${tid},${paperAccountId},${`paper-order:${id}`},${String(r.symbol||'').toUpperCase()},${side},${Number(r.quantity||0)},${Number(status==='filled'?r.quantity:0)},${status},${Number(r.fillPrice)||null},${r.marketEvidence?.source||null},${r.marketEvidence?.asof||null},${r.marketEvidence?.exchange||null},${r.marketEvidence?.delay_class||null},${r.marketEvidence?.license_id||null},${r.marketEvidence?.point_in_time===true},${payload}::jsonb,COALESCE(${r.createdAt||null}::timestamptz,now()),now()) ON CONFLICT(tenant_id,id) DO UPDATE SET status=EXCLUDED.status,filled_quantity=EXCLUDED.filled_quantity,execution_price=EXCLUDED.execution_price,payload=EXCLUDED.payload,updated_at=now()`;}if(ids.size)await db.sql`DELETE FROM paper_orders WHERE tenant_id=${tid} AND account_id=${paperAccountId} AND id <> ALL(${[...ids]})`;else await db.sql`DELETE FROM paper_orders WHERE tenant_id=${tid} AND account_id=${paperAccountId}`;return rows;}
 
+export async function recordDecisionResponse({tenantId,userId,decision,response,paperOrderId=null,idempotencyKey}={}){
+  const tid=String(tenantId||''),uid=String(userId||'').slice(0,96),decisionId=String(decision?.id||''),answer=String(response||''),idem=String(idempotencyKey||'');
+  if(!tid||!decisionId||!['followed','overrode','no_action'].includes(answer)||!idem) throw new Error('DECISION_RESPONSE_INVALID');
+  const row={id:crypto.randomUUID(),tenantId:tid,userId:uid||null,decisionId,response:answer,paperOrderId:paperOrderId?String(paperOrderId):null,idempotencyKey:idem,createdAt:new Date().toISOString()};
+  const db=await database();
+  if(!db){
+    const rows=localDecisionResponses.get(tid)||[];const prior=rows.find(x=>x.idempotencyKey===idem);
+    if(prior){if(prior.decisionId!==decisionId||prior.response!==answer||prior.paperOrderId!==row.paperOrderId)throw new Error('IDEMPOTENCY_KEY_REUSED');return {...clone(prior),idempotent:true};}
+    rows.push(row);localDecisionResponses.set(tid,rows);return clone(row);
+  }
+  const client=await db.pool.connect();
+  try{
+    await client.query('BEGIN');
+    // Keep the response relationally anchored even for older JSON-only decisions.
+    // No price is copied here; only the licensed evidence pipeline writes price fields.
+    await client.query(`INSERT INTO decisions(id,tenant_id,idempotency_key,symbol,payload,created_at)
+      VALUES($1,$2,$3,$4,$5::jsonb,COALESCE($6::timestamptz,now()))
+      ON CONFLICT(tenant_id,id) DO NOTHING`,[decisionId,tid,`decision-response:${decisionId}`,String(decision.asset||'UNKNOWN'),JSON.stringify({id:decisionId,asset:decision.asset||null,createdAt:decision.createdAt||null}),decision.createdAt||null]);
+    const inserted=await client.query(`INSERT INTO decision_responses(id,tenant_id,decision_id,user_id,response,paper_order_id,idempotency_key,created_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8::timestamptz) ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING id,tenant_id,decision_id,user_id,response,paper_order_id,idempotency_key,created_at`,[row.id,tid,decisionId,row.userId,answer,row.paperOrderId,idem,row.createdAt]);
+    let saved=inserted.rows[0];
+    if(!saved){const existing=await client.query('SELECT id,tenant_id,decision_id,user_id,response,paper_order_id,idempotency_key,created_at FROM decision_responses WHERE tenant_id=$1 AND idempotency_key=$2',[tid,idem]);saved=existing.rows[0];if(!saved||saved.decision_id!==decisionId||saved.response!==answer||saved.paper_order_id!==(row.paperOrderId||null))throw new Error('IDEMPOTENCY_KEY_REUSED');}
+    await client.query('COMMIT');
+    return {id:saved.id,tenantId:saved.tenant_id,decisionId:saved.decision_id,userId:saved.user_id,response:saved.response,paperOrderId:saved.paper_order_id,idempotencyKey:saved.idempotency_key,createdAt:new Date(saved.created_at).toISOString(),idempotent:!inserted.rows.length};
+  }catch(e){try{await client.query('ROLLBACK');}catch{}if(e?.code==='23503')throw new Error('DECISION_RESPONSE_REFERENCE_INVALID');throw e;}finally{client.release();}
+}
+
+export async function listDecisionResponseHistory(tenantId){
+  const tid=String(tenantId||'');if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');const db=await database();
+  if(!db)return clone(localDecisionResponses.get(tid)||[]).reverse();
+  const result=await db.sql`SELECT id,tenant_id,decision_id,user_id,response,paper_order_id,idempotency_key,created_at FROM decision_responses WHERE tenant_id=${tid} ORDER BY created_at DESC,id DESC LIMIT 10000`;
+  return (result||[]).map(r=>({id:r.id,tenantId:r.tenant_id,decisionId:r.decision_id,userId:r.user_id,response:r.response,paperOrderId:r.paper_order_id,idempotencyKey:r.idempotency_key,createdAt:new Date(r.created_at).toISOString()}));
+}
+
+export async function listDecisionResponses(tenantId){
+  const rows=await listDecisionResponseHistory(tenantId),latest={};for(const row of rows)if(!latest[row.decisionId])latest[row.decisionId]=row;return latest;
+}
+
+export async function replaceDecisionResponseHistory({tenantId,decisions=[],responses=[]}={}){
+  const tid=String(tenantId||'');if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');const safeDecisions=Array.isArray(decisions)?decisions:[],safeRows=Array.isArray(responses)?responses:[];const db=await database();
+  if(!db){localDecisionResponses.set(tid,safeRows.map(r=>({...clone(r),tenantId:tid,userId:null})));return {saved:safeRows.length};}
+  const client=await db.pool.connect();
+  try{
+    await client.query('BEGIN');
+    await client.query('DELETE FROM decision_responses WHERE tenant_id=$1',[tid]);
+    for(const d of safeDecisions){if(!d?.id)continue;await client.query(`INSERT INTO decisions(id,tenant_id,idempotency_key,symbol,payload,created_at) VALUES($1,$2,$3,$4,$5::jsonb,COALESCE($6::timestamptz,now())) ON CONFLICT(tenant_id,id) DO NOTHING`,[String(d.id),tid,`decision-response:${String(d.id)}`,String(d.asset||'UNKNOWN'),JSON.stringify({id:d.id,asset:d.asset||null,createdAt:d.createdAt||null}),d.createdAt||null]);}
+    for(const r of safeRows){if(!r?.id||!r?.decisionId||!r?.idempotencyKey)continue;await client.query(`INSERT INTO decision_responses(id,tenant_id,decision_id,user_id,response,paper_order_id,idempotency_key,created_at) VALUES($1,$2,$3,NULL,$4,$5,$6,COALESCE($7::timestamptz,now())) ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`,[String(r.id),tid,String(r.decisionId),String(r.response),r.paperOrderId?String(r.paperOrderId):null,String(r.idempotencyKey),r.createdAt||null]);}
+    await client.query('COMMIT');return {saved:safeRows.length};
+  }catch(e){try{await client.query('ROLLBACK');}catch{}throw e;}finally{client.release();}
+}
+
 export async function saveMarketSnapshots(tenantId,items=[]){
   const tid=String(tenantId||'');if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');
   const rows=(items||[]).slice(0,1000);const db=await database();
@@ -338,18 +390,30 @@ export async function purgeTenantRelationalData(tenantId){
   const tid=String(tenantId||'').slice(0,96); if(!tid) throw new Error('TENANT_ID_REQUIRED');
   const databaseHandle=await database();
   if(!databaseHandle){
-    let auditRemoved=0,usageRemoved=0;
+    let auditRemoved=0,usageRemoved=0,decisionResponseRemoved=0;
     for(let i=localAudit.length-1;i>=0;i--){ if(localAudit[i]?.tenantId===tid){ localAudit.splice(i,1); auditRemoved++; } }
     for(const [key,row] of [...localUsage.entries()]){ if(row?.tenantId===tid){ localUsage.delete(key); usageRemoved++; } }
-    return {auditRemoved,usageRemoved};
+    for(const [key,row] of [...localAIUsage.entries()]){ if(row?.tenantId===tid)localAIUsage.delete(key); }
+    const responses=localDecisionResponses.get(tid)||[];decisionResponseRemoved=responses.length;localDecisionResponses.delete(tid);localPaper.delete(tid);
+    return {auditRemoved,usageRemoved,decisionResponseRemoved};
   }
   const client=await databaseHandle.pool.connect();
   try{
     await client.query('BEGIN');
+    const responses=await client.query('DELETE FROM decision_responses WHERE tenant_id=$1',[tid]);
+    await client.query('DELETE FROM decision_outcomes WHERE tenant_id=$1',[tid]);
+    await client.query('DELETE FROM decisions WHERE tenant_id=$1',[tid]);
+    await client.query('DELETE FROM market_snapshots WHERE tenant_id=$1',[tid]);
+    await client.query('DELETE FROM paper_transactions WHERE tenant_id=$1',[tid]);
+    await client.query('DELETE FROM paper_orders WHERE tenant_id=$1',[tid]);
+    await client.query('DELETE FROM paper_marks WHERE tenant_id=$1',[tid]);
+    await client.query('DELETE FROM paper_accounts WHERE tenant_id=$1',[tid]);
+    await client.query('DELETE FROM entitlements WHERE tenant_id=$1',[tid]);
+    await client.query('DELETE FROM usage_ledger WHERE tenant_id=$1',[tid]);
     const audit=await client.query('DELETE FROM kairos_audit_events WHERE tenant_id=$1',[tid]);
     const usage=await client.query('DELETE FROM kairos_usage_events WHERE tenant_id=$1',[tid]);
     await client.query('COMMIT');
-    return {auditRemoved:Number(audit.rowCount||0),usageRemoved:Number(usage.rowCount||0)};
+    return {auditRemoved:Number(audit.rowCount||0),usageRemoved:Number(usage.rowCount||0),decisionResponseRemoved:Number(responses.rowCount||0)};
   }catch(e){ try{await client.query('ROLLBACK');}catch{} throw e; }
   finally{ client.release(); }
 }

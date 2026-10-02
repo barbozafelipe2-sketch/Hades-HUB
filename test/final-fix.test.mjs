@@ -62,6 +62,10 @@ assert.throws(()=>normalizeBackupPayload({version:5,transactions:[],marks:{},pap
   id:'orphan-fill',symbol:'SPY',side:'BUY',orderType:'MARKET',quantity:1,fees:0,status:'FILLED',fillPrice:100,transactionId:'paper-fill:orphan-fill',createdAt:`${day}T10:00:00Z`,updatedAt:`${day}T10:00:00Z`
 }],decisions:[],watchlist:[],snapshots:{},traces:{},worldStates:{}}),/FILLED_ORDER_TRANSACTION_MISSING/);
 
+const responseBackup=normalizeBackupPayload({version:5,transactions:[],marks:{},paperOrders:[],decisions:[{id:'decision-response-test',asset:'SPY'}],decisionResponses:[{id:'response-export-test',decisionId:'decision-response-test',response:'followed',paperOrderId:null,idempotencyKey:'response-idem-test',createdAt:`${day}T10:00:00Z`}],watchlist:[],snapshots:{},traces:{},worldStates:{}});
+assert.equal(responseBackup.decisionResponses.length,1,'backup export/restore validation must preserve self-reported decision responses');
+assert.throws(()=>normalizeBackupPayload({version:5,transactions:[],marks:{},paperOrders:[],decisions:[{id:'decision-response-test',asset:'SPY'}],decisionResponses:[{id:'response-export-test',decisionId:'decision-response-test',response:'caused_return',idempotencyKey:'response-idem-test'}],watchlist:[],snapshots:{},traces:{},worldStates:{}}),/INVALID_DECISION_RESPONSE/);
+
 // Netlify platform rate limits must all be within the documented 180-second ceiling.
 const functionDir=path.join(root,'netlify/functions');
 let platformRules=0;
