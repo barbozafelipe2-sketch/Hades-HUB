@@ -22,3 +22,13 @@ assert.doesNotMatch(app,/S&P benchmark/);
 assert.match(doc,/HADES_\*.*SAURON_\*/s);
 assert.match(doc,/official customer-facing mark/i);
 console.log(JSON.stringify({ok:true,rebrand:'KAIROS V7.3'},null,2));
+
+import { getEnv } from '../netlify/lib/env.mjs';
+process.env.KAIROS_INTERNAL_SECRET='alias-secret-value-0123456789abcdef';
+delete process.env.HADES_INTERNAL_SECRET;
+assert.equal(getEnv('HADES_INTERNAL_SECRET'), 'alias-secret-value-0123456789abcdef');
+process.env.HADES_INTERNAL_SECRET='legacy-secret-value-0123456789abcdef';
+assert.equal(getEnv('HADES_INTERNAL_SECRET'), 'alias-secret-value-0123456789abcdef');
+delete process.env.KAIROS_INTERNAL_SECRET;
+assert.equal(getEnv('HADES_INTERNAL_SECRET'), 'legacy-secret-value-0123456789abcdef');
+delete process.env.HADES_INTERNAL_SECRET;

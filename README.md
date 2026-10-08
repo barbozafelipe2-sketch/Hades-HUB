@@ -11,3 +11,5 @@ KAIROS is a web-first paper-broker and decision-intelligence system built around
 - Stripe-hosted billing, tenant entitlements, idempotent monthly AI-cost budgets, sanitized audit events and owner support diagnostics are included in Hard Fix 2/3.
 
 See `README_SETUP.md` for deployment and `COMMERCIAL_READINESS.md` for the staged commercial hardening plan.
+
+License: proprietary. See `LICENSE`. All rights reserved. Public visibility is not a grant to use or copy.
