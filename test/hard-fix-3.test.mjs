@@ -35,7 +35,7 @@ assert.equal(d1.priceAsOf,'2026-06-02T23:59:59Z');
 assert.ok(Math.abs(d1.returnSinceDecision-0.02)<1e-12);
 assert.equal(d7.targetDate,'2026-06-08');
 assert.ok(Math.abs(d7.returnSinceDecision-0.10)<1e-12);
-assert.equal(d7.pointInTime,true);
+assert.equal(d7.pointInTime,false,'ordinary historical closes do not prove historical availability');
 assert.equal(d7.priceSource,'twelve_data');
 
 // Gap scan must continue past a fully populated first window.
@@ -99,7 +99,7 @@ assert.match(catchup,/catchupRunId/);
 assert.match(catchup,/triggerNext\(runId,/);
 const trace=fs.readFileSync(new URL('../netlify/lib/trace.mjs',import.meta.url),'utf8');
 assert.match(trace,/historicalClose\(/);
-assert.match(trace,/pointInTime:true/);
+assert.match(trace,/pointInTime:pt\.point_in_time===true/);
 assert.match(trace,/No current quotes, news, AI prices/);
 assert.match(trace,/const newestDate=/,'historical catch-up must not move lastSuccessfulDate backwards');
 console.log('hard-fix-3 PASS');

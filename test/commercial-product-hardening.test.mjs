@@ -48,7 +48,7 @@ try{
   const fallback=await quote('AAPL');
   assert.equal(fallback.source,'twelve_data'); assert.ok(fallback.license_id); assert.equal(fallback.point_in_time,false);
   const hist=await closes('AAPL','2026-09-30','2026-10-01');
-  assert.equal(hist.length,2); assert.ok(hist.every(x=>x.point_in_time===true&&x.source==='twelve_data'));
+  assert.equal(hist.length,2); assert.ok(hist.every(x=>x.point_in_time===false&&x.source==='twelve_data'));
 
   // A provider key without a configured license identifier cannot manufacture licensed provenance.
   delete process.env.TWELVE_DATA_LICENSE_ID;delete process.env.FINNHUB_LICENSE_ID;delete process.env.KAIROS_LICENSED_MARKET_LICENSE_ID;

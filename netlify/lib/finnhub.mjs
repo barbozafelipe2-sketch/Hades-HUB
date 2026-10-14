@@ -59,9 +59,9 @@ export async function finnhubQuote(symbol,{timeoutMs=9000}={}){
   const d=await fh('/quote',{symbol:vendor},Math.max(250,Math.min(9000,Number(timeoutMs)||9000)));
   const price=Number(d.c);
   if(!Number.isFinite(price)||price<=0) throw new Error(`FINNHUB_BAD_QUOTE:${requested}`);
-  const asOf=Number.isFinite(Number(d.t))&&Number(d.t)>0
-    ? new Date(Number(d.t)*1000).toISOString()
-    : new Date().toISOString();
+  const timestamp=Number(d.t);
+  if(!Number.isFinite(timestamp)||timestamp<=0||!Number.isFinite(new Date(timestamp*1000).getTime())) throw new Error(`FINNHUB_BAD_TIMESTAMP:${requested}`);
+  const asOf=new Date(timestamp*1000).toISOString();
   return {
     symbol:requested,
     vendorSymbol:vendor,

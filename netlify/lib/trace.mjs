@@ -84,7 +84,7 @@ export async function saveDailySnapshot(date,ws,{marksOverride=null,historical=f
   const snap={
     date,
     createdAt:new Date().toISOString(),
-    reconstruction:historical?'licensed_point_in_time':null,
+    reconstruction:historical?(ws?._meta?.point_in_time===true?'licensed_point_in_time':'licensed_historical_unverified'):null,
     portfolioValue:derived.totalValue,
     cash:derived.cash,
     costBasis:derived.costBasis,
@@ -140,7 +140,7 @@ export async function scoreDecisionOutcomes(asOfDate){
       returnSinceDecision:ret,
       directionalCorrect:item.d.final.status==='ADD'?ret>0:ret<0,
       priceSource:pt.source,
-      pointInTime:true,
+      pointInTime:pt.point_in_time===true,
       exactTradingDate:pt.exact===true
     });
   }
@@ -163,12 +163,12 @@ async function reconstructHistoricalWorldState(date){
     generated_at:new Date().toISOString(),
     freshness:'historical_reconstruction',
     market_session:'historical_close',
-    summary:'Point-in-time reconstruction from licensed daily closes. No current quotes, news, AI prices, or present-day regime data are injected into this historical trace.',
+    summary:'Historical reconstruction from licensed daily closes; historical availability is unverified. No current quotes, news, AI prices, or present-day regime data are injected into this historical trace.',
     regime:{name:'Historical price reconstruction',trend:'UNKNOWN',volatility:'UNKNOWN',liquidity:'UNKNOWN'},
     benchmarks:{spy_price:point('SPY')?.price??null,gold_price:point('GLD')?.price??null,btc_price:point('BTC')?.price??null,us10y_yield:null,dxy:null},
     instruments:requested.filter(s=>point(s)).map(s=>({symbol:s,price:point(s).price,as_of:point(s).asOf,source:point(s).source,confidence:'historical_licensed_close'})),
     drivers:[],cross_asset:[],risks:[],unknowns:['Historical news/regime context intentionally not reconstructed to avoid look-ahead bias.'],
-    _meta:{market_source:'licensed_historical_close',price_authority:'licensed_historical_close',historical_reconstruction:true,point_in_time:true,look_ahead_guard:true,errors:hist.errors}
+    _meta:{market_source:'licensed_historical_close',price_authority:'licensed_historical_close',historical_reconstruction:true,point_in_time:requested.every(s=>point(s)?.point_in_time===true),look_ahead_guard:true,errors:hist.errors}
   };
   ws.trace_context=await getHistoricalTraceContext(date);
   await setJSON(`trace/world-state/${date}`,ws); // never overwrite latest current world state

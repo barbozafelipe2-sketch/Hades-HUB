@@ -41,7 +41,10 @@ export async function twelveQuote(symbol,{timeoutMs=9000}={}){
   const requested=String(symbol||'').toUpperCase(); const vendor=twelveSymbol(requested);
   const d=await td('/quote',{symbol:vendor},Math.max(250,Math.min(9000,Number(timeoutMs)||9000)));
   const price=Number(d.close??d.price); if(!Number.isFinite(price)||price<=0) throw new Error(`TWELVE_DATA_BAD_QUOTE:${requested}`);
-  return {symbol:requested,vendorSymbol:vendor,price,asOf:d.datetime||d.timestamp||new Date().toISOString(),currency:d.currency||'USD',exchange:d.exchange||null,change:Number.isFinite(Number(d.change))?Number(d.change):null,percentChange:Number.isFinite(Number(d.percent_change))?Number(d.percent_change):null};
+  const timestamp=Number(d.timestamp);
+  const asOf=Number.isFinite(timestamp)&&timestamp>0?new Date(timestamp*1000).toISOString():String(d.datetime||'');
+  if(!asOf || !Number.isFinite(Date.parse(asOf))) throw new Error(`TWELVE_DATA_BAD_TIMESTAMP:${requested}`);
+  return {symbol:requested,vendorSymbol:vendor,price,asOf,currency:d.currency||'USD',exchange:d.exchange||null,change:Number.isFinite(Number(d.change))?Number(d.change):null,percentChange:Number.isFinite(Number(d.percent_change))?Number(d.percent_change):null};
 }
 export async function twelveSeries(symbol,{outputsize=32,interval='1day',startDate=null,endDate=null}={}){
   const requested=String(symbol||'').toUpperCase(); const vendor=twelveSymbol(requested);

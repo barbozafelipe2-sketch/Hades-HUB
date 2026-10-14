@@ -113,3 +113,23 @@ Public signup remains closed unless the existing Identity/legal/billing requirem
 Leave the approval flags false while configuring or testing. The owner-only `launch-readiness` endpoint shows non-secret blockers. `npm run verify` also runs the commercial-copy claims scan.
 
 These technical controls do not constitute legal clearance. The intended service, public claims, privacy/retention policy, market-data licensing, tax/billing posture and any securities-law implications still require the appropriate professional review before launch.
+# October 14 persistence and market provenance corrections
+
+The additive `20261014000100_tenant-paper-accounts` migration changes the account
+primary key to `(tenant_id, id)`. It preserves existing account IDs, orders and
+transactions, and allows every tenant to create its own `paper-main` account.
+Apply migrations before running the updated application.
+
+Market quotes now require a valid provider timestamp. Missing timestamps are
+unavailable; the application no longer substitutes the current time. Ordinary
+Twelve Data/Finnhub historical series remain usable as descriptive history but
+are not treated as proof of historical availability. The licensed closes and
+benchmark endpoints must supply `point_in_time: true` and a valid `available_at`
+timestamp between the observation timestamp and the end of that UTC day before
+the application marks them point-in-time. Outcome scoring and historical Trace
+reconstruction no longer manufacture that guarantee. Existing saved evidence is
+preserved; this change does not retroactively certify earlier records.
+
+Run `npm run verify` with `KAIROS_TEST_DATABASE_URL` pointing to an isolated,
+disposable PostgreSQL database to include the real database regression checks.
+These tests truncate paper ledger tables and must never target production.

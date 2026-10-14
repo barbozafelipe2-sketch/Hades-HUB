@@ -8,7 +8,6 @@ const inflight=new Map();
 const stickyFallback=new Map();
 const canon=s=>String(s||'').trim().toUpperCase();
 const configured=(name)=>!!cleanSecret(getEnv(name));
-const nowISO=()=>new Date().toISOString();
 
 export function licensedMarketConfigured(){return !!String(getEnv('KAIROS_LICENSED_MARKET_BASE_URL')||'').trim()&&configured('KAIROS_LICENSED_MARKET_API_KEY')&&configured('KAIROS_LICENSED_MARKET_LICENSE_ID');}
 function metadata(symbol,data,source,{pointInTime=false}={}){
@@ -18,7 +17,13 @@ function metadata(symbol,data,source,{pointInTime=false}={}){
   if(!licenseId)throw new Error('MARKET_LICENSE_ID_REQUIRED');
   const price=Number(data?.price??data?.close??data?.value);
   if(!Number.isFinite(price)||price<=0) throw new Error('MARKET_VALUE_INVALID');
-  return {symbol:canon(symbol),price,source:String(data?.source||source).slice(0,80),asof:String(data?.asof||data?.asOf||data?.datetime||nowISO()),exchange:data?.exchange?String(data.exchange).slice(0,80):null,delay_class:String(data?.delay_class||data?.delayClass||getEnv('KAIROS_MARKET_DELAY_CLASS','unknown')).slice(0,40),license_id:licenseId,point_in_time:pointInTime===true,provider:String(data?.provider||source),currency:String(data?.currency||'USD'),change:Number.isFinite(Number(data?.change))?Number(data.change):null,percentChange:Number.isFinite(Number(data?.percentChange??data?.percent_change))?Number(data.percentChange??data.percent_change):null};
+  const asof=String(data?.asof||data?.asOf||data?.datetime||'').trim();
+  if(!asof || !Number.isFinite(Date.parse(asof))) throw new Error('MARKET_TIMESTAMP_REQUIRED');
+  const availableAt=String(data?.available_at||'');
+  const availableMs=Date.parse(availableAt);
+  const cutoff=Date.parse(`${asof.slice(0,10)}T23:59:59.999Z`);
+  const verifiedPointInTime=pointInTime===true && data?.point_in_time===true && Number.isFinite(availableMs) && availableMs>=Date.parse(asof) && availableMs<=cutoff;
+  return {symbol:canon(symbol),price,source:String(data?.source||source).slice(0,80),asof,exchange:data?.exchange?String(data.exchange).slice(0,80):null,delay_class:String(data?.delay_class||data?.delayClass||getEnv('KAIROS_MARKET_DELAY_CLASS','unknown')).slice(0,40),license_id:licenseId,available_at:Number.isFinite(availableMs)?availableAt:null,point_in_time:verifiedPointInTime,provider:String(data?.provider||source),currency:String(data?.currency||'USD'),change:Number.isFinite(Number(data?.change))?Number(data.change):null,percentChange:Number.isFinite(Number(data?.percentChange??data?.percent_change))?Number(data.percentChange??data.percent_change):null};
 }
 async function primary(path,params={}){
   if(!licensedMarketConfigured()) throw new Error('LICENSED_MARKET_NOT_CONFIGURED');
@@ -90,7 +95,7 @@ export async function benchmark(symbol,window){
   catch{
     const points=await closes(s,typeof window==='object'?window.from:null,typeof window==='object'?window.to:null);
     if(points.length<2) throw new Error(`BENCHMARK_UNAVAILABLE:${s}`);
-    data={price:points.at(-1).price,asof:points.at(-1).asof,exchange:points.at(-1).exchange,delay_class:points.at(-1).delay_class,license_id:points.at(-1).license_id,relative_return:null}; source=points.at(-1).source;
+    data={price:points.at(-1).price,asof:points.at(-1).asof,exchange:points.at(-1).exchange,delay_class:points.at(-1).delay_class,license_id:points.at(-1).license_id,point_in_time:points.every(p=>p.point_in_time===true),available_at:points.at(-1).available_at,relative_return:null}; source=points.at(-1).source;
   }
   return {...metadata(s,data,source,{pointInTime:true}),relative_return:Number.isFinite(Number(data.relative_return??data.relativeReturn))?Number(data.relative_return??data.relativeReturn):null};
 }
