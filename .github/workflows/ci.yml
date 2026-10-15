@@ -1,8 +1,11 @@
 name: KAIROS CI
 
+permissions:
+  contents: read
+
 on:
   push:
-    branches: [main, kairos-commercial-hardening]
+    branches: [main]
   pull_request:
 
 jobs:

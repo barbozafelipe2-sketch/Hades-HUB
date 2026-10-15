@@ -10,6 +10,11 @@ const canon=s=>String(s||'').trim().toUpperCase();
 const configured=(name)=>!!cleanSecret(getEnv(name));
 
 export function licensedMarketConfigured(){return !!String(getEnv('KAIROS_LICENSED_MARKET_BASE_URL')||'').trim()&&configured('KAIROS_LICENSED_MARKET_API_KEY')&&configured('KAIROS_LICENSED_MARKET_LICENSE_ID');}
+function optionalFiniteNumber(value){
+  if(value===null||value===undefined||value==='') return null;
+  const n=Number(value);
+  return Number.isFinite(n)?n:null;
+}
 function metadata(symbol,data,source,{pointInTime=false}={}){
   const sourceKey=source.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
   const configuredLicense=source==='licensed_market_feed'?getEnv('KAIROS_LICENSED_MARKET_LICENSE_ID'):getEnv(`${sourceKey}_LICENSE_ID`);
@@ -23,7 +28,7 @@ function metadata(symbol,data,source,{pointInTime=false}={}){
   const availableMs=Date.parse(availableAt);
   const cutoff=Date.parse(`${asof.slice(0,10)}T23:59:59.999Z`);
   const verifiedPointInTime=pointInTime===true && data?.point_in_time===true && Number.isFinite(availableMs) && availableMs>=Date.parse(asof) && availableMs<=cutoff;
-  return {symbol:canon(symbol),price,source:String(data?.source||source).slice(0,80),asof,exchange:data?.exchange?String(data.exchange).slice(0,80):null,delay_class:String(data?.delay_class||data?.delayClass||getEnv('KAIROS_MARKET_DELAY_CLASS','unknown')).slice(0,40),license_id:licenseId,available_at:Number.isFinite(availableMs)?availableAt:null,point_in_time:verifiedPointInTime,provider:String(data?.provider||source),currency:String(data?.currency||'USD'),change:Number.isFinite(Number(data?.change))?Number(data.change):null,percentChange:Number.isFinite(Number(data?.percentChange??data?.percent_change))?Number(data.percentChange??data.percent_change):null};
+  return {symbol:canon(symbol),price,source:String(data?.source||source).slice(0,80),asof,exchange:data?.exchange?String(data.exchange).slice(0,80):null,delay_class:String(data?.delay_class||data?.delayClass||getEnv('KAIROS_MARKET_DELAY_CLASS','unknown')).slice(0,40),license_id:licenseId,available_at:Number.isFinite(availableMs)?availableAt:null,point_in_time:verifiedPointInTime,provider:String(data?.provider||source),currency:String(data?.currency||'USD'),change:optionalFiniteNumber(data?.change),percentChange:optionalFiniteNumber(data?.percentChange??data?.percent_change)};
 }
 async function primary(path,params={}){
   if(!licensedMarketConfigured()) throw new Error('LICENSED_MARKET_NOT_CONFIGURED');
@@ -97,7 +102,7 @@ export async function benchmark(symbol,window){
     if(points.length<2) throw new Error(`BENCHMARK_UNAVAILABLE:${s}`);
     data={price:points.at(-1).price,asof:points.at(-1).asof,exchange:points.at(-1).exchange,delay_class:points.at(-1).delay_class,license_id:points.at(-1).license_id,point_in_time:points.every(p=>p.point_in_time===true),available_at:points.at(-1).available_at,relative_return:null}; source=points.at(-1).source;
   }
-  return {...metadata(s,data,source,{pointInTime:true}),relative_return:Number.isFinite(Number(data.relative_return??data.relativeReturn))?Number(data.relative_return??data.relativeReturn):null};
+  return {...metadata(s,data,source,{pointInTime:true}),relative_return:optionalFiniteNumber(data.relative_return??data.relativeReturn)};
 }
 export async function universe(){
   try{const d=await primary('universe');return Array.isArray(d)?d:(d.instruments||d.universe||[]);}
