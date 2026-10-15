@@ -1,3 +1,6 @@
+import {installAccessibility} from './ui/accessibility.js';
+import {lineChart} from './ui/charts.js';
+import {createPaperBuildReview} from './ui/paper-build.js';
 const $=(s,r=document)=>r.querySelector(s); const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 let state=null, currentSection='home', perfRange='1Y', decisionRange='all', selectedAsset=null, marketUniverse=[], selectedMarketId='nasdaq', mirrorFocus='all', brokerTradeSide='BUY', insightPane='queue', brokerSearch='', brokerCategory='ALL';
 let cryptoCatalogMeta={total:0,offset:0,limit:100,hasMore:false,provider:null,stale:false}; let cryptoCatalogLoading=false; let cryptoSearchTimer=null;
@@ -1155,22 +1158,11 @@ async function runAIMirror(ev){
     for(const b of btns) loading(b,false);
   }
 }
+const paperBuildReview=createPaperBuildReview({api,openRuntimeModal,loading,toast,money,esc,onApplied:async()=>{await loadState();nav('wallet');}});
 async function applyMirrorToWallet(){
-  const btn=$('#applyMirrorWalletBtn');
   const m=state?.aiMirror;
-  if(!m || m.status!=='APPROVED' || !(m.allocation||[]).length){toast('Run an approved AI Mirror first.');return;}
-  const budget=Number($('#aiMirrorBudget')?.value||m.budget||0);
-  const focus=$('#aiMirrorFocus')?.value||m.focus||'all';
-  loading(btn,true,'Applying paper trades');
-  try{
-    const r=await api('portfolio-build',{method:'POST',body:JSON.stringify({action:'buildFromMirror',budget,focus,source:'ai-mirror'}),timeoutMs:60000});
-    await loadState();
-    nav('wallet');
-    const buyList=(r.buys||[]).map(b=>`${b.symbol} ${b.quantity}@${b.unitPrice}`).join(', ');
-    const skip=(r.skipped||[]).length?` Skipped: ${r.skipped.map(s=>`${s.symbol}(${s.reason})`).join(', ')}.`:'';
-    toast(`Paper wallet updated — deposited ${money(r.deposited||0)}; buys: ${buyList||'none'}.${skip}`);
-  }catch(e){toast(e.message);}
-  finally{loading(btn,false)}
+  if(!m||m.status!=='APPROVED'||!(m.allocation||[]).length){toast('Run an approved AI Mirror first.');return;}
+  await paperBuildReview({budget:Number($('#aiMirrorBudget')?.value||m.budget||0),focus:$('#aiMirrorFocus')?.value||m.focus||'all',button:$('#applyMirrorWalletBtn')});
 }
 async function waitWalletMirrorJob(jobId){
   for(let i=0;i<120;i++){
@@ -1233,11 +1225,13 @@ async function saveEvolutionSettings(){
   try{await api('account',{method:'POST',body:JSON.stringify({action:'saveSettings',settings:{...state.settings,evolutionAutoRun:$('#sEvolutionAutoRun')?.checked===true,evolutionAutoPromote:$('#sEvolutionAutoPromote')?.checked===true}})});await loadState();nav('insight');toast('Evolution controls saved.');}
   catch(e){toast(e.message)}finally{loading(btn,false)}
 }
-function closeRuntimeModal(){ $('#runtimeModal')?.remove(); }
-function openRuntimeModal({title,body,submitLabel='Save',danger=false,onSubmit}){
+function closeRuntimeModal(force=false){const modal=$('#runtimeModal');if(modal?.dataset.submitting==='true'&&force!==true)return;modal?.remove();}
+function openRuntimeModal({title,body,submitLabel='Save',danger=false,onSubmit,opener=null}){
   closeRuntimeModal();
+  if($('#runtimeModal'))return;
   const el=document.createElement('div');
   el.id='runtimeModal';
+  el.returnFocusTarget=opener||document.activeElement;
   el.className='onboarding-modal';
   el.style.display='flex';
   el.setAttribute('role','dialog');
@@ -1249,10 +1243,13 @@ function openRuntimeModal({title,body,submitLabel='Save',danger=false,onSubmit})
   el.addEventListener('click',e=>{ if(e.target===el) closeRuntimeModal(); });
   $('form',el).onsubmit=async e=>{
     e.preventDefault();
+    if(el.dataset.submitting==='true')return;
+    el.dataset.submitting='true';
+    $$('[data-modal-close]',el).forEach(b=>b.disabled=true);
     const btn=$('button[type="submit"]',el);
     loading(btn,true,'Saving');
-    try{ await onSubmit(el); closeRuntimeModal(); }
-    catch(err){ toast(err.message); loading(btn,false); }
+    try{ await onSubmit(el); closeRuntimeModal(true); }
+    catch(err){el.dataset.submitting='false';$$('[data-modal-close]',el).forEach(b=>b.disabled=false);toast(err.message);loading(btn,false);}
   };
   setTimeout(()=>$('input,select,textarea',el)?.focus(),80);
 }
@@ -1423,15 +1420,7 @@ function showOnboarding(){
   document.body.appendChild(el); paint();
 }
 
-function lineChart(s1=[],s2=null,s3=null,colors=['#f2c94c','#b8c4d6','#ffae42']){
-  const dated=[s1,s2,s3].some(s=>s?.some(p=>p&&typeof p==='object'&&p.date));
-  const series=[s1,s2,s3].map((s,index)=>({index,points:(s||[]).map((p,i)=>({x:dated?Date.parse(p?.date):i,value:typeof p==='object'?Number(p.value):Number(p)})).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.value))})).filter(s=>s.points.length);
-  if(!series.length)return '<div class="alert warn">No chart observations yet.</div>';
-  const all=series.flatMap(s=>s.points),W=760,H=270,P=30,min=Math.min(...all.map(p=>p.value)),max=Math.max(...all.map(p=>p.value)),left=Math.min(...all.map(p=>p.x)),right=Math.max(...all.map(p=>p.x));
-  const path=s=>s.map((p,i)=>`${i?'L':'M'} ${(P+(p.x-left)*(W-2*P)/(right-left||1)).toFixed(1)} ${(H-P-(p.value-min)/(max-min||1)*(H-2*P)).toFixed(1)}`).join(' ');
-  const label=x=>dated?new Date(x).toISOString().slice(0,10):`Point ${x+1}`;
-  return `<svg class="chart chart-glow" role="img" aria-label="Recorded series from ${esc(label(left))} to ${esc(label(right))}" viewBox="0 0 ${W} ${H}"><title>Recorded observations</title><desc>Range ${min.toFixed(2)} to ${max.toFixed(2)}. Missing series are omitted.</desc>${series.map(s=>`<path d="${path(s.points)}" fill="none" stroke="${colors[s.index]||colors[0]}" stroke-width="${s.index?2.2:3}"/>`).join('')}<text x="${P}" y="${H-5}" fill="currentColor" font-size="12">${esc(label(left))}</text><text x="${W-P}" y="${H-5}" text-anchor="end" fill="currentColor" font-size="12">${esc(label(right))}</text></svg>`;
-}
+
 function greeting(){const h=new Date().getHours();return h<12?'morning':h<18?'afternoon':'evening';}
 
 function openAdvisor(context='Current screen'){
@@ -1444,42 +1433,7 @@ function closeAdvisor(){const d=$('#advisorDrawer');if(!d)return;d.classList.rem
 function openSystem(){const d=$('#systemDrawer');if(!d)return;d.classList.add('open');d.setAttribute('aria-hidden','false');}
 function closeSystem(){const d=$('#systemDrawer');if(!d)return;d.classList.remove('open');d.setAttribute('aria-hidden','true');}
 
-let activeDialog=null,dialogOpener=null,dialogInert=[];
-function syncAccessibility(){
-  document.querySelectorAll('.field').forEach(field=>{
-    const label=field.querySelector('label'),control=field.querySelector('input,select,textarea');
-    if(label&&control&&!control.labels?.length){if(!control.id)control.id='field-'+crypto.randomUUID();label.htmlFor=control.id;}
-  });
-  document.querySelectorAll('[data-risk],[data-display]').forEach(el=>{
-    el.setAttribute('role','button');el.tabIndex=0;
-    el.setAttribute('aria-pressed',String(el.classList.contains('active')));
-    el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};
-  });
-  const dialog=['#runtimeModal','#onboard','#signupModal','#advisorDrawer','#systemDrawer'].map(q=>document.querySelector(q)).find(el=>el&&el.getClientRects().length&&!el.classList.contains('hidden')&&el.getAttribute('aria-hidden')!=='true');
-  if(dialog===activeDialog)return;
-  for(const [el,was] of dialogInert)el.inert=was;dialogInert=[];
-  const previousOpener=dialogOpener;
-  activeDialog=dialog||null;
-  if(!dialog){dialogOpener=null;if(previousOpener?.isConnected)previousOpener.focus();return;}
-  dialogOpener=document.activeElement;
-  dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
-  if(!dialog.getAttribute('aria-labelledby')&&!dialog.getAttribute('aria-label'))dialog.setAttribute('aria-label',dialog.querySelector('h2,h3')?.textContent||'Dialog');
-  for(let branch=dialog;branch&&branch!==document.body;branch=branch.parentElement){
-    for(const sibling of branch.parentElement?.children||[]){if(sibling!==branch){dialogInert.push([sibling,sibling.inert]);sibling.inert=true;}}
-  }
-  const first=dialog.querySelector('button,input,select,textarea,[tabindex="0"]');
-  if(first)first.focus();else{dialog.tabIndex=-1;dialog.focus();}
-}
-document.addEventListener('keydown',e=>{
-  if(e.key!=='Tab'||!activeDialog)return;
-  const controls=[...activeDialog.querySelectorAll('button,input,select,textarea,a[href],[tabindex="0"]')].filter(el=>!el.disabled&&el.getClientRects().length);
-  if(!controls.length){e.preventDefault();activeDialog.focus();return;}
-  const first=controls[0],last=controls.at(-1);
-  if(e.shiftKey&&(document.activeElement===first||!activeDialog.contains(document.activeElement))){e.preventDefault();last.focus();}
-  else if(!e.shiftKey&&(document.activeElement===last||!activeDialog.contains(document.activeElement))){e.preventDefault();first.focus();}
-});
-new MutationObserver(syncAccessibility).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','aria-hidden','style']});
-syncAccessibility();
+installAccessibility();
 
 $$('.nav-btn,.footer-btn').forEach(b=>b.addEventListener('click',()=>nav(b.dataset.section)));
 $$('[data-go]').forEach(b=>b.addEventListener('click',()=>nav(b.dataset.go)));

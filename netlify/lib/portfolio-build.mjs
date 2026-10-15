@@ -156,7 +156,8 @@ async function buildPaperWalletFromAllocationUnlocked(opts={}){
       deposited:shortfall,
       buys,
       skipped,
-      portfolio:derivePortfolio(candidate, marksPatch)
+      portfolio:derivePortfolio(candidate, marksPatch),
+      ...(opts.prepare===true?{preparedTransactions:newTxs,preparedMarks:marksPatch,initialTransactions:txs0}:{})
     };
   }
 

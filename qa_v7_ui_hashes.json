@@ -1,8 +1,14 @@
 {
-  "./public/index.html": "e81b5e09c7a7027975397701514adfa20f0339ec817b4cb44c0433cf3b0125bc",
-  "./public/app.js": "b98ecdac24808692b4ae2cf83ef8f7074582904f74930a47b05648f95f5b3d77",
-  "./public/v7.css": "4b1ee24ad13f89eb3e5acfc25f36ddfb79a84a785f4ef14d567fc55d0faa8c9c",
+  "./public/index.html": "1e5859a586439eddcfdc1014747629cb7fe2f8434b625a3d6ce21f9d1915b13b",
+  "./public/app.js": "a3c0161aed3185cfffc12b3f384a4d02543a10d1d1e93abf1087f962f967588c",
+  "./public/v7.css": "78806e906a9f7c491be43a6abc934c2934c224dff334bcda19466a6b7548d9e4",
   "./public/styles.css": "dc9bc521a18644204e4eb38974fca0c3578ea5134b2078860738352a89222dcc",
   "./public/kairos-mark.png": "0da825055982a3d12f6245ef9d9694461addead44890b5d88fe2592fdfee8da0",
-  "./public/manifest.webmanifest": "da0b860e111b298ff747448064b12245da6ab64dcbde1e579295dcc3fffbb50f"
+  "./public/manifest.webmanifest": "da0b860e111b298ff747448064b12245da6ab64dcbde1e579295dcc3fffbb50f",
+  "./public/ui/paper-build.css": "d79be6727b954a7248c5f9ac8da1796f4fce35bfa230d22553aaa155992fc282",
+  "./public/ui/tokens.css": "bf605ec285a5291fa6194b8a2936c7d3ae0189cf7266ce9f4824eea73f7ca479",
+  "./public/ui/charts.js": "cb16ae2af88298f933079df5161c1109f8aa5a23311cea3e37bd62a79f0c595f",
+  "./public/ui/paper-build.js": "fc177e56e0a9359fbf6cd28d9883f644de5bd643aa08476e741f6f23a5c4367c",
+  "./public/ui/accessibility.js": "4165c4401bd4001f73355290c3b1eb4f09a86ea4b7bff2f4135cbcb880697e99",
+  "./public/app.css": "01481e8bda4c3368d50fc2a87087f431ec71195683fb9d187162f165c147038d"
 }

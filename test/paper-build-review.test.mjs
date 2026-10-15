@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+Object.assign(process.env,{KAIROS_DATA_BACKEND:'postgres',KAIROS_DATABASE_QA_MEMORY:'true'});
+const store=await import('../netlify/lib/store.mjs'),state=await import('../netlify/lib/state.mjs');
+const {preparePaperBuild,confirmPaperBuild}=await import('../netlify/lib/paper-build-review.mjs');
+store.configurePersistenceForRequest({});
+const session={tenantId:'t_review',userId:'u_review',role:'owner'};store.configureTenantForRequest(session);
+const mark={price:100,source:'licensed_market_feed',license_id:'review-license',asOf:new Date().toISOString()};
+await state.saveMarks({AAPL:mark});await state.saveAIMirror({status:'APPROVED',budget:200,allocation:[{symbol:'AAPL',weight_pct:100}]});
+const prepare=()=>preparePaperBuild(session,{budget:200,focus:'all'});
+let plan=await prepare();
+assert.equal((await state.getTransactions()).length,0,'preview cannot fund or buy');
+assert.equal(plan.deposited,200);assert.equal(plan.buys[0].quantity,2);assert.equal(plan.currency,'USD');
+assert.equal(plan.preparedTransactions,undefined,'internal transaction plan is never returned');
+await assert.rejects(()=>confirmPaperBuild({...session,userId:'another-user'},plan.planId),/PLAN_NOT_FOUND/);
+const confirmations=await Promise.all([confirmPaperBuild(session,plan.planId),confirmPaperBuild(session,plan.planId)]);
+assert.equal(confirmations[1].idempotent,true);assert.equal((await state.getTransactions()).length,2);
+// A persisted ledger with a lost completion response is reconciled, not replayed.
+const saved=await store.getJSON('draft/paper-build/'+plan.planId);await store.setJSON('draft/paper-build/'+plan.planId,{...saved,status:'PREPARED',result:null});
+assert.equal((await confirmPaperBuild(session,plan.planId)).idempotent,true);assert.equal((await state.getTransactions()).length,2);
+plan=await prepare();await state.saveMarks({AAPL:{...mark,price:101}});await assert.rejects(()=>confirmPaperBuild(session,plan.planId),/PRICE_CHANGED/);await state.saveMarks({AAPL:mark});
+plan=await prepare();await store.setJSON('draft/paper-build/'+plan.planId,{...await store.getJSON('draft/paper-build/'+plan.planId),expiresAt:'2020-01-01T00:00:00Z'});await assert.rejects(()=>confirmPaperBuild(session,plan.planId),/PLAN_EXPIRED/);
+plan=await prepare();await state.saveTransactions([...(await state.getTransactions()),{id:'intervening-deposit',type:'DEPOSIT',amount:1,date:new Date().toISOString().slice(0,10)}]);await assert.rejects(()=>confirmPaperBuild(session,plan.planId),/LEDGER_CHANGED/);
+store.configureTenantForRequest({tenantId:'t_otherreview',userId:session.userId,role:'owner'});await assert.rejects(()=>confirmPaperBuild(session,plan.planId),/PLAN_NOT_FOUND/);
+console.log('paper-build-review: PASS (preview, exact confirmation, duplicate requests, lost response, expiry, price/ledger changes, isolation)');

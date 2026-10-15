@@ -22,3 +22,10 @@ Baseline: `2aac7f13a0b4f807fa2d88dbec5a661233157fab` on `main`.
 
 ## Status
 **BLOCKED FOR PUBLIC RELEASE.** This file records a deployment checklist, not an assertion that production tests, database migrations, billing validation, or release approval have passed. No production configuration or data is changed by this documentation commit.
+
+## Follow-up — 2026-10-15
+
+The GitHub Actions run for `6656d713d38a5c55a81305604fbd227ac80421aa` completed successfully: https://github.com/barbozafelipe2-sketch/Hades-HUB/actions/runs/38698521986.
+The published Netlify deploy remains `6ab182518634bd59892f43a0`. Public requests currently return HTTP 503 with `usage_exceeded`; account usage must be resolved before an online smoke test can pass. Commercial Stripe and primary-feed configuration were not present in the inspected project-variable list. No credential values were recorded or changed.
+
+The follow-up implementation builds through `npm run build`, which runs verification and generates `public/release.json` with commit identity. Owner-only readiness also checks live database primary keys. Neither feature certifies a deployment until it is actually published and exercised. See [the completion report](RELEASE_COMPLETION_2026_10_15.md) for scope and remaining external dependencies. Public release remains blocked.

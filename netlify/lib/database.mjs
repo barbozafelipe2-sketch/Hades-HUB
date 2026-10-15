@@ -168,6 +168,19 @@ export async function withDatabaseLock(scope,key,fn){
   }
 }
 
+// A migration file in Git is not proof that its schema is serving this deploy.
+export async function databaseSchemaStatus(){
+  const required=['paper_accounts','paper_transactions','paper_orders','decisions','decision_outcomes','decision_responses','entitlements','usage_ledger'];
+  if(qaMemoryMode())return {verified:false,mode:'memory',missing:required};
+  try{
+    const db=await database();if(!db)return {verified:false,mode:'unavailable',missing:required};
+    const result=await db.pool.query(`SELECT tc.table_name,kcu.column_name,kcu.ordinal_position FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu ON tc.constraint_schema=kcu.constraint_schema AND tc.constraint_name=kcu.constraint_name AND tc.table_name=kcu.table_name WHERE tc.constraint_type='PRIMARY KEY' AND tc.table_schema='public' ORDER BY tc.table_name,kcu.ordinal_position`);
+    const primaryKeys={};for(const row of result.rows)(primaryKeys[row.table_name]||=[]).push(row.column_name);
+    const missing=required.filter(table=>JSON.stringify(primaryKeys[table])!==JSON.stringify(['tenant_id','id']));
+    return {verified:missing.length===0,mode:'postgres',missing};
+  }catch{return {verified:false,mode:'unavailable',missing:required};}
+}
+
 
 
 export async function migrateLegacyPaperLedger(tenantId,blobLegacy={}){

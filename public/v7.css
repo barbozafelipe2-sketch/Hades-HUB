@@ -131,6 +131,6 @@ body{background:
 
 /* Shared accessibility floor across the legacy style layers. */
 .v7-screen .tiny,.v7-screen .meta,.v7-kicker,.v7-freshness{font-size:12px!important;line-height:1.45!important}
-button,.choice,[role="button"]{min-height:32px;min-width:24px}
-:focus-visible{outline:2px solid #80b7ff!important;outline-offset:3px!important}
+button,.choice,[role="button"]{min-height:var(--ui-control-min);min-width:24px}
+:focus-visible{outline:2px solid var(--ui-focus)!important;outline-offset:3px!important}
 @media(max-width:600px){.v7-screen p,.v7-screen small,.v7-screen label{font-size:12px!important;line-height:1.45!important}.lock-btn{min-width:32px!important}}

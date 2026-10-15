@@ -9,7 +9,7 @@ import {
   getAIMirror,getAIMirrorHistory,getWalletMirror,getEvolutionState,getPaperOrders,savePaperOrders,
   getWatchlist,saveWatchlist,sanitizeProfile,sanitizeSettings
 } from '../lib/state.mjs';
-import { getJSON, setJSON, listKeys, deleteKey, withKeyLock, pruneJSONCollection, configurePersistenceForRequest } from '../lib/store.mjs';
+import { getJSON, setJSON, listKeys, deleteKey, withKeyLock, pruneJSONCollection, configurePersistenceForRequest,stageArtifactRevision,activateArtifactRevision } from '../lib/store.mjs';
 import { derivePortfolio, normalizeSymbol, validateTransactionLedger } from '../lib/portfolio.mjs';
 import { normalizeSymbolList } from '../lib/input.mjs';
 import { auditCommercialEvent } from '../lib/commercial-control.mjs';
@@ -137,20 +137,18 @@ async function captureBackup(tenantId){
   const [snapshots,traces,worldStates]=await Promise.all([exportPrefix('snapshots/'),exportPrefix('traces/'),exportPrefix('trace/world-state/')]);
   return {version:5,exportedAt:new Date().toISOString(),profile:await getProfile(),settings:await getSettings(),transactions:await getTransactions(),marks:await getMarks(),paperOrders:await getPaperOrders(),watchlist:await getWatchlist(),worldState:await getWorldState(),traceStatus:await getTraceStatus(),decisions,decisionResponses:await listDecisionResponseHistory(tenantId),snapshots,traces,worldStates,aiMirror:await getAIMirror(),aiMirrorHistory:await getAIMirrorHistory(),walletMirror:await getWalletMirror(),evolution:await getEvolutionState()};
 }
-async function clearPrefix(prefix){ for(const k of await listKeys(prefix)) await deleteKey(k); }
-async function setOrDelete(key,value){ if(value==null) await deleteKey(key); else await setJSON(key,value); }
-
 async function applyNormalizedBackup(b,tenantId){
-  // Collections that can contain orphaned records are replaced, never overlaid.
-  await Promise.all([clearPrefix('decisions/'),clearPrefix('snapshots/'),clearPrefix('traces/'),clearPrefix('trace/world-state/')]);
+  // Build a complete new artifact generation without deleting the active one.
+  const revision=crypto.randomUUID();
+  const entries={...b.snapshots,...b.traces,...b.worldStates,'decisions/index':b.decisions.map(d=>d.id),'broker/watchlist':b.watchlist,'mirror/ai/history':b.aiMirrorHistory||[]};
+  for(const d of b.decisions)entries[`decisions/${d.id}`]=d;
+  for(const [key,value] of [['trace/status',b.traceStatus],['mirror/ai/latest',b.aiMirror],['mirror/wallet/latest',b.walletMirror],['evolution/state',b.evolution]])if(value!=null)entries[key]=value;
+  if(b.worldState){entries['trace/world-state/latest']=b.worldState;entries[`trace/world-state/${b.worldState.date}`]=b.worldState;}
+  await stageArtifactRevision(revision,entries);
   await saveProfile(b.profile); await saveSettings(b.settings);
-  await saveTransactions(b.transactions); await saveMarks(b.marks); await savePaperOrders(b.paperOrders); await saveWatchlist(b.watchlist);
-  if(b.traceStatus) await saveTraceStatus(b.traceStatus); else await deleteKey('trace/status');
-  await setOrDelete('mirror/ai/latest',b.aiMirror); await setJSON('mirror/ai/history',b.aiMirrorHistory||[]); await setOrDelete('mirror/wallet/latest',b.walletMirror); await setOrDelete('evolution/state',b.evolution);
-  for(const d of b.decisions) await setJSON(`decisions/${d.id}`,d); await saveDecisionIndex(b.decisions.map(d=>d.id));
+  await saveTransactions(b.transactions); await saveMarks(b.marks); await savePaperOrders(b.paperOrders);
   await replaceDecisionResponseHistory({tenantId,decisions:b.decisions,responses:b.decisionResponses||[]});
-  for(const group of Object.keys(RESTORE_PREFIXES)) for(const [k,v] of Object.entries(b[group]||{})) await setJSON(k,v);
-  if(b.worldState){ await setJSON('trace/world-state/latest',b.worldState); await setJSON(`trace/world-state/${b.worldState.date}`,b.worldState); }
+  await activateArtifactRevision(revision);
 }
 
 // Server-created recovery snapshots retain their original evidence status.

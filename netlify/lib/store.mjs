@@ -95,7 +95,10 @@ export function configureTenantForRequest(tenant){
     role:tenant?.role?String(tenant.role).slice(0,32):null,
   };
   const current=activeContext();
-  if(current){ current.tenant=tenantValue; return tenantValue; }
+  if(current){
+    if(current.tenant?.tenantId!==tenantValue?.tenantId)delete current.artifactRevision;
+    current.tenant=tenantValue; return tenantValue;
+  }
   requestContext.enterWith({storageScope:null,dataNamespace:production()?null:'local',tenant:tenantValue});
   return tenantValue;
 }
@@ -192,33 +195,86 @@ async function keys(prefix='',{system=false}={}){
 
 // Tenant data APIs. Transactional/customer state uses Netlify Database in hosted commercial mode.
 // High-volume historical/operational artifacts remain in deploy/site scoped Blobs.
+const ARTIFACT_POINTER='_workspace/artifact-revision';
+const artifactKey=key=>['decisions/','snapshots/','traces/','trace/world-state/','mirror/'].some(prefix=>String(key).startsWith(prefix))||['trace/status','evolution/state','broker/watchlist'].includes(String(key));
+const revisionPrefix=revision=>`_artifact-versions/${revision}/`;
+export async function currentArtifactRevision(){
+  const context=activeContext();
+  if(context?.artifactRevision!==undefined)return context.artifactRevision;
+  const pointer=await readJSON(ARTIFACT_POINTER,null,{system:false});
+  const revision=pointer?.revision||null;
+  if(revision&&!/^[a-f0-9-]{36}$/i.test(revision))throw new Error('INVALID_ARTIFACT_REVISION');
+  if(context)context.artifactRevision=revision;
+  return revision;
+}
+async function artifactStorageKey(key){
+  if(!artifactKey(key))return key;
+  const revision=await currentArtifactRevision();
+  return revision?revisionPrefix(revision)+key:key;
+}
+export async function stageArtifactRevision(revision,entries){
+  if(!/^[a-f0-9-]{36}$/i.test(revision))throw new Error('INVALID_ARTIFACT_REVISION');
+  if(await readJSON(`_artifact-manifests/${revision}`,null,{system:false}))throw new Error('ARTIFACT_REVISION_ALREADY_EXISTS');
+  for(const [key,value] of Object.entries(entries)){
+    if(!artifactKey(key))throw new Error('INVALID_ARTIFACT_KEY');
+    await writeJSON(revisionPrefix(revision)+key,value,{}, {system:false});
+    if(JSON.stringify(await readJSON(revisionPrefix(revision)+key,null,{system:false}))!==JSON.stringify(value))throw new Error('ARTIFACT_STAGE_VERIFICATION_FAILED');
+  }
+  await writeJSON(`_artifact-manifests/${revision}`,{keys:Object.keys(entries),ready:true,createdAt:new Date().toISOString()},{},{system:false});
+}
+export async function activateArtifactRevision(revision){
+  const manifest=await readJSON(`_artifact-manifests/${revision}`,null,{system:false});
+  if(manifest?.ready!==true)throw new Error('ARTIFACT_REVISION_NOT_READY');
+  await writeJSON(ARTIFACT_POINTER,{revision,activatedAt:new Date().toISOString()},{},{system:false});
+  if(activeContext())activeContext().artifactRevision=revision;
+}
+async function activeBlobKeys(prefix){
+  const revision=await currentArtifactRevision();
+  if(!revision)return keys(prefix,{system:false});
+  const base=revisionPrefix(revision);
+  const [legacy,versioned]=await Promise.all([keys(prefix,{system:false}),keys(base+prefix,{system:false})]);
+  return [...legacy.filter(key=>!artifactKey(key)&&!key.startsWith('_artifact-versions/')&&!key.startsWith('_artifact-manifests/')), ...versioned.map(key=>key.slice(base.length))].sort();
+}
 export async function getJSON(key,fallback=null){
   if(dataBackend()==='postgres'&&databaseBackedKey(key)) return getTenantRecord(scopedTenantId(tenantIdRequired()),String(key),fallback);
-  return readJSON(key,fallback,{system:false});
+  return readJSON(await artifactStorageKey(key),fallback,{system:false});
 }
 export async function setJSON(key,value,options={}){
   if(dataBackend()==='postgres'&&databaseBackedKey(key)) return setTenantRecord(scopedTenantId(tenantIdRequired()),String(key),value,options);
-  return writeJSON(key,value,options,{system:false});
+  return writeJSON(await artifactStorageKey(key),value,options,{system:false});
 }
 export async function listKeys(prefix=''){
-  if(dataBackend()!=='postgres') return keys(prefix,{system:false});
+  if(dataBackend()!=='postgres') return activeBlobKeys(prefix);
   const mode=databaseBackedPrefix(prefix);
   if(mode===true) return listTenantRecords(scopedTenantId(tenantIdRequired()),prefix);
-  if(mode===false) return keys(prefix,{system:false});
+  if(mode===false) return activeBlobKeys(prefix);
   const tid=scopedTenantId(tenantIdRequired());
-  const [dbKeys,blobKeys]=await Promise.all([listTenantRecords(tid,prefix),keys(prefix,{system:false})]);
+  const [dbKeys,blobKeys]=await Promise.all([listTenantRecords(tid,prefix),activeBlobKeys(prefix)]);
   return [...new Set([...dbKeys,...blobKeys])].sort();
 }
 export async function deleteKey(key){
   if(dataBackend()==='postgres'&&databaseBackedKey(key)) return deleteTenantRecord(scopedTenantId(tenantIdRequired()),String(key));
-  return removeKey(key,{system:false});
+  return removeKey(await artifactStorageKey(key),{system:false});
 }
 export async function purgeCurrentTenantData({maxKeys=12000}={}){
   tenantIdRequired();
-  const found=await listKeys('');
-  if(found.length>Math.max(1,Number(maxKeys)||12000)) throw new Error('TENANT_PURGE_TOO_MANY_KEYS');
+  const blobKeys=await keys('',{system:false});
+  const dbKeys=dataBackend()==='postgres'?await listTenantRecords(databaseTenantScope(),''):[];
+  const found=[...new Set([...blobKeys,...dbKeys])];
+  // Retired generations can exceed the old one-generation cap. Delete every
+  // physical key in bounded batches, and report success only after all finish.
+  const batchSize=Math.max(1,Math.min(25,Math.trunc(Number(maxKeys)||25)));
+  const blobSet=new Set(blobKeys),dbSet=new Set(dbKeys);
   let removed=0;
-  for(const key of found){ await deleteKey(key); removed++; }
+  for(let offset=0;offset<found.length;offset+=batchSize){
+    const batch=found.slice(offset,offset+batchSize);
+    await Promise.all(batch.map(async key=>{
+      if(dbSet.has(key))await deleteTenantRecord(databaseTenantScope(),key);
+      if(blobSet.has(key))await removeKey(key,{system:false});
+    }));
+    removed+=batch.length;
+  }
+  if(activeContext())activeContext().artifactRevision=null;
   return {removed};
 }
 

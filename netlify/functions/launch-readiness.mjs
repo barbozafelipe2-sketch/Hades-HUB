@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { licensedMarketHealth } from '../lib/market-truth.mjs';
+import { databaseSchemaStatus } from '../lib/database.mjs';
 import { getJSON,setJSON,deleteKey } from '../lib/store.mjs';
 import { requireSession,requireRole,commercialReleaseState } from '../lib/auth.mjs';
 import { json } from '../lib/http.mjs';
@@ -19,7 +20,9 @@ export default async (req,context)=>{
   const probeKeys=['draft/readiness-'+probeId,'diagnostics/readiness-'+probeId];
   try{for(const key of probeKeys){await setJSON(key,{probeId});if((await getJSON(key,null))?.probeId!==probeId)throw new Error('PERSISTENCE_PROBE_FAILED');}persistenceVerified=true;}catch{}finally{for(const key of probeKeys)await deleteKey(key).catch(()=>{});}
   const marketHealth=await licensedMarketHealth();
+  const schema=await databaseSchemaStatus();
   const checks=[
+    {id:'database_schema_verified',ok:schema.verified===true},
     {id:'persistence_roundtrip_verified',ok:persistenceVerified},
     {id:'licensed_market_runtime_verified',ok:marketHealth.requestOk===true},
     {id:'release_configuration',ok:release.ready===true},
@@ -38,6 +41,7 @@ export default async (req,context)=>{
   return json({
     ready:blockers.length===0,
     release,
+    schema,
     runtime:{persistence,aiGateway:providers?.aiGateway?.configured===true,marketConfigured:providers?.market?.configured===true,licensedFeedOk:marketHealth.requestOk===true,persistenceVerified,legacyAuthOff:release.legacyAuthOff===true,stripeWebhookOk:billing.webhookConfigured===true,dailyUsdCapSet:release.dailyUsdCapsSet===true,previewSmoke:release.previewSmokeApproved===true,securityPass:security.pass===true,billingConfigured:billing.configured===true},
     checks,
     blockers:[...new Set(blockers)],

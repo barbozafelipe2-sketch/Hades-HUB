@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+const url=process.env.KAIROS_TEST_DATABASE_URL;
+if(!url){console.log('paper-build-postgres: SKIP (KAIROS_TEST_DATABASE_URL unset)');process.exit(0);}
+Object.assign(process.env,{KAIROS_DATA_BACKEND:'postgres',NETLIFY_DB_URL:url});delete process.env.KAIROS_DATABASE_QA_MEMORY;
+const store=await import('../netlify/lib/store.mjs'),state=await import('../netlify/lib/state.mjs');
+const {preparePaperBuild,confirmPaperBuild}=await import('../netlify/lib/paper-build-review.mjs');
+const {databaseSchemaStatus,purgeTenantRelationalData}=await import('../netlify/lib/database.mjs');
+store.configurePersistenceForRequest({});const session={tenantId:'t_'+crypto.randomUUID().replaceAll('-',''),userId:'postgres-review',role:'owner'};store.configureTenantForRequest(session);
+assert.equal((await databaseSchemaStatus()).verified,true,'deployed schema must use tenant-owned composite identifiers');
+await state.saveMarks({AAPL:{price:100,source:'licensed_market_feed',license_id:'postgres-review-license',asOf:new Date().toISOString()}});
+await state.saveAIMirror({status:'APPROVED',budget:200,allocation:[{symbol:'AAPL',weight_pct:100}]});
+const plan=await preparePaperBuild(session,{budget:200,focus:'all'});assert.equal((await state.getTransactions()).length,0);
+const first=await confirmPaperBuild(session,plan.planId);assert.equal(first.buys[0].quantity,2);
+assert.equal((await confirmPaperBuild(session,plan.planId)).idempotent,true);assert.equal((await state.getTransactions()).length,2);
+const persisted=await store.getJSON('draft/paper-build/'+plan.planId);
+await store.setJSON('draft/paper-build/'+plan.planId,{...persisted,status:'PREPARED',result:null});
+assert.equal((await confirmPaperBuild(session,plan.planId)).idempotent,true,'JSONB key order cannot defeat lost-response recovery');
+assert.equal((await state.getTransactions()).length,2);
+await store.purgeCurrentTenantData();await purgeTenantRelationalData(store.databaseTenantScope());
+console.log('paper-build-postgres: PASS (schema, JSONB plans, fills and lost-response reconciliation)');
+process.exit(0);

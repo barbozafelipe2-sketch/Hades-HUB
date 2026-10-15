@@ -113,7 +113,8 @@ const {normalizeTransaction,derivePortfolio}=await import('./netlify/lib/portfol
   const html=fs.readFileSync('./public/index.html','utf8');
   const css=fs.readFileSync('./public/v7.css','utf8');
   assert.match(html,/V7\.3 · DECISION INTELLIGENCE/);
-  assert.match(html,/\/v7\.css\?v=7\.3\.0/);
+  assert.match(html,/\/app\.css\?v=7\.3\.0/);
+  assert.ok(fs.readFileSync('./public/app.css','utf8').includes(css),'bundle retains the approved V7 layer');
   assert.match(app,/KAIROS BROKER · PAPER EXECUTION/);
   assert.match(app,/Market \/ Limit \/ Stop orders/);
   assert.match(app,/MARKET PULSE/);

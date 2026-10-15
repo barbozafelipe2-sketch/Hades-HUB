@@ -1,0 +1,7 @@
+.paper-review-summary{display:flex;flex-wrap:wrap;gap:16px;margin:18px 0}
+.paper-review-summary span{display:flex;flex-direction:column;gap:4px}
+.paper-review-table{overflow-x:auto;margin:16px 0}
+.paper-review-table table{width:100%;border-collapse:collapse;text-align:left;font-size:var(--ui-text-secondary)}
+.paper-review-table caption{text-align:left;font-weight:700;padding:8px 0}
+.paper-review-table th,.paper-review-table td{padding:10px 8px;border-bottom:1px solid var(--v7-line)}
+.paper-review-table td{text-align:right;font-variant-numeric:tabular-nums}

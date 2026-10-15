@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+Object.assign(process.env,{KAIROS_DATA_BACKEND:'postgres',KAIROS_DATABASE_QA_MEMORY:'true'});
+const s=await import('../netlify/lib/store.mjs');
+s.configurePersistenceForRequest({});s.configureTenantForRequest({tenantId:'t_versions',role:'owner'});
+await s.setJSON('decisions/old',{id:'old'});await s.setJSON('snapshots/2026-10-01',{value:100});
+const failed=crypto.randomUUID();
+await assert.rejects(()=>s.stageArtifactRevision(failed,{'decisions/partial':{id:'partial'},'invalid/key':{}}),/INVALID_ARTIFACT_KEY/);
+await assert.rejects(()=>s.activateArtifactRevision(failed),/NOT_READY/);
+assert.deepEqual(await s.getJSON('decisions/old'),{id:'old'});
+const revision=crypto.randomUUID();
+await s.stageArtifactRevision(revision,{'decisions/index':['new'],'decisions/new':{id:'new'},'snapshots/2026-10-02':{value:200}});
+assert.deepEqual(await s.getJSON('decisions/old'),{id:'old'},'staging cannot change current reads');
+assert.equal(await s.getJSON('decisions/new',null),null);
+await assert.rejects(()=>s.activateArtifactRevision(crypto.randomUUID()),/NOT_READY/);
+await s.activateArtifactRevision(revision);
+assert.equal(await s.getJSON('decisions/old',null),null);assert.deepEqual(await s.getJSON('decisions/new'),{id:'new'});
+assert.deepEqual(await s.listKeys('snapshots/'),['snapshots/2026-10-02']);
+assert.deepEqual(await s.getJSON('_artifact-versions/'+revision+'/decisions/new'),{id:'new'});
+await s.setJSON('decisions/new',{id:'new',updated:true});assert.equal((await s.getJSON('decisions/new')).updated,true);
+// A later replacement must preserve the retired generation.
+const next=crypto.randomUUID();await s.stageArtifactRevision(next,{'decisions/index':[]});await s.activateArtifactRevision(next);
+assert.deepEqual(await s.listKeys('decisions/'),['decisions/index']);
+assert.equal((await s.getJSON('_artifact-versions/'+revision+'/decisions/new')).updated,true);
+s.configureTenantForRequest({tenantId:'t_otherrevision',role:'owner'});assert.equal(await s.currentArtifactRevision(),null);await s.setJSON('decisions/other',{id:'other'});
+s.configureTenantForRequest({tenantId:'t_versions',role:'owner'});assert.equal(await s.currentArtifactRevision(),next);
+await s.purgeCurrentTenantData({maxKeys:2});assert.equal(await s.getJSON('_artifact-versions/'+revision+'/decisions/new',null),null);assert.deepEqual(await s.listKeys(''),[]);
+console.log('artifact-revisions: PASS (staging, root swap, absence semantics, retired generation, privacy purge)');
