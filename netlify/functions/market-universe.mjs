@@ -1,3 +1,5 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
+import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { buildUniverseView, buildDynamicAssetView } from '../lib/market-universe.mjs';
@@ -5,9 +7,10 @@ import { configurePersistenceForRequest } from '../lib/store.mjs';
 import { searchCryptoCatalog, findCryptoAsset } from '../lib/crypto-catalog.mjs';
 import { normalizeSymbolInput } from '../lib/input.mjs';
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
-  if(!(await requireSession(req))) return json({error:'UNAUTHORIZED'},401);
+  const session=await requireSession(req);
+  if(!session) return json({error:'UNAUTHORIZED'},401);
 
   if(req.method==='GET'){
     const u=new URL(req.url);
@@ -23,6 +26,7 @@ export default async (req,context)=>{
   }
 
   if(req.method==='POST'){
+    try{await assertCommercialAccess(session);}catch(e){const ce=commercialErrorJSON(e);if(ce)return json(ce.body,ce.status);throw e;}
     const body=await readJSON(req);
     if(body.action==='resolveCrypto'){
       let symbol;
@@ -37,4 +41,4 @@ export default async (req,context)=>{
   }
 
   return json({error:'METHOD_NOT_ALLOWED'},405);
-};
+});

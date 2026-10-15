@@ -33,7 +33,7 @@ for (const [date,qqq,spy,b] of [['2026-09-10',500,6000,58000],['2026-09-11',510,
 await setJSON('trace/world-state/latest',mk('2026-09-12',520,6120,60000));
 const u=await buildUniverseView(); const q=u.find(x=>x.symbol==='QQQ'); assert.equal(q.series.length,3); assert.ok(q.periodReturn>0); pass('Broker market board builds real recorded curves');
 
-await saveAIMirror({generatedAt:'2026-09-10T21:00:00Z',status:'APPROVED',focus:'all',budget:10000,allocation:[{symbol:'QQQ',weight_pct:50,amount:5000},{symbol:'SPY',weight_pct:50,amount:5000}],gate:{approved:true}});
+await saveAIMirror({generatedAt:'2026-09-09T21:00:00Z',status:'APPROVED',focus:'all',budget:10000,allocation:[{symbol:'QQQ',weight_pct:50,amount:5000},{symbol:'SPY',weight_pct:50,amount:5000}],gate:{approved:true}});
 const hist=await getAIMirrorHistory(); assert.equal(hist.length,1); pass('Approved AI Mirror is versioned into comparison history');
 
 await setJSON('snapshots/2026-09-10',{date:'2026-09-10',portfolioValue:10000,netExternalFlow:10000,completeMarks:true,markIntegrity:'complete'});
@@ -42,8 +42,8 @@ await setJSON('snapshots/2026-09-12',{date:'2026-09-12',portfolioValue:10250,net
 const pm=await buildPerformanceMirror(); assert.equal(pm.user.ready,true); assert.equal(pm.ai.ready,true); assert.equal(pm.benchmark.ready,true); assert.ok(pm.user.series.length>=3); assert.ok(pm.ai.series.length>=3); pass('Performance Mirror compares YOU vs SAURON vs SPY from recorded data');
 
 const decisions=[
- {final:{status:'ADD',audit_status:'PASS',confidence:'HIGH'},specialists:{core2:{source_quality:'high',unknowns:[]}},attacks:{a:{pass:true}},evidenceSnapshot:{position:{allocation:.2}},outcomes:[{checkpointDays:30,directionalCorrect:true}]},
- {final:{status:'ADD',audit_status:'PASS',confidence:'LOW'},specialists:{core2:{source_quality:'low',unknowns:['a','b','c','d']}},attacks:{a:{pass:true}},evidenceSnapshot:{position:{allocation:.55}},outcomes:[{checkpointDays:30,directionalCorrect:false}]}
+ {final:{status:'ADD',audit_status:'PASS',confidence:'HIGH'},specialists:{core2:{source_quality:'high',unknowns:[]}},attacks:{a:{pass:true}},evidenceSnapshot:{position:{allocation:.2}},outcomes:[{checkpointDays:30,pointInTime:true,returnSinceDecision:0.1,directionalCorrect:true}]},
+ {final:{status:'ADD',audit_status:'PASS',confidence:'LOW'},specialists:{core2:{source_quality:'low',unknowns:['a','b','c','d']}},attacks:{a:{pass:true}},evidenceSnapshot:{position:{allocation:.55}},outcomes:[{checkpointDays:30,pointInTime:true,returnSinceDecision:-0.1,directionalCorrect:false}]}
 ];
 const permissive=normalizeStrategy({...DEFAULT_STRATEGY,preferAbstainWhenUnknowns:10,maxSingleAssetPctForAdd:90});
 const base=evaluateStrategy(decisions,permissive); const conservative=evaluateStrategy(decisions,normalizeStrategy({...DEFAULT_STRATEGY,minConfidence:'HIGH',blockLowSourceQuality:true,preferAbstainWhenUnknowns:2,maxSingleAssetPctForAdd:35}));

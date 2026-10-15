@@ -18,7 +18,7 @@ function metadata(symbol,data,source,{pointInTime=false}={}){
   const price=Number(data?.price??data?.close??data?.value);
   if(!Number.isFinite(price)||price<=0) throw new Error('MARKET_VALUE_INVALID');
   const asof=String(data?.asof||data?.asOf||data?.datetime||'').trim();
-  if(!asof || !Number.isFinite(Date.parse(asof))) throw new Error('MARKET_TIMESTAMP_REQUIRED');
+  if(!asof || !Number.isFinite(Date.parse(asof)) || Date.parse(asof)>Date.now()+300000) throw new Error('MARKET_TIMESTAMP_REQUIRED');
   const availableAt=String(data?.available_at||'');
   const availableMs=Date.parse(availableAt);
   const cutoff=Date.parse(`${asof.slice(0,10)}T23:59:59.999Z`);
@@ -111,3 +111,14 @@ export async function marketQuotes(symbols,options={}){
   return {quotes:values,errors,meta:{cacheTtlMs:CACHE_TTL_MS,primaryConfigured:licensedMarketConfigured(),stickyFallback:Object.fromEntries(stickyFallback)}};
 }
 export function clearMarketTruthCache(){quotes.clear();inflight.clear();stickyFallback.clear();}
+
+export async function licensedMarketHealth(){
+  const started=Date.now(),keyDetected=licensedMarketConfigured();
+  if(!keyDetected)return {provider:'licensed_market_feed',keyDetected:false,requestOk:false,authOk:false,lastError:'LICENSED_MARKET_NOT_CONFIGURED'};
+  try{
+    const raw=await primary('quote',{symbol:'SPY'});
+    const q=metadata('SPY',raw,'licensed_market_feed');
+    if(Date.now()-Date.parse(q.asof)>48*3600000)throw new Error('LICENSED_MARKET_QUOTE_STALE');
+    return {provider:'licensed_market_feed',keyDetected:true,requestOk:true,authOk:true,latencyMs:Date.now()-started,asof:q.asof};
+  }catch{return {provider:'licensed_market_feed',keyDetected:true,requestOk:false,authOk:false,latencyMs:Date.now()-started,lastError:'LICENSED_MARKET_PROBE_FAILED'};}
+}

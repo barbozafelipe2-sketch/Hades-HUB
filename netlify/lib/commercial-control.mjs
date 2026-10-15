@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { getEnv } from './env.mjs';
-import { getJSON, setJSON, getSystemJSON, setSystemJSON, currentTenantContext } from './store.mjs';
+import { getJSON, setJSON, getSystemJSON, setSystemJSON, currentTenantContext, withSystemKeyLock } from './store.mjs';
 import { consumeUsageEvent, getUsageSummary, appendAuditEvent, listAuditEvents } from './database.mjs';
 
 const BILLING_KEY='commercial/billing';
@@ -112,7 +112,10 @@ export async function auditCommercialEvent(session,eventType,{requestId=null,det
   return await appendAuditEvent({tenantId:session?.tenantId||null,userId:session?.userId||null,eventType,requestId,details:{role:session?.role||null,...details}});
 }
 
-export async function applyBillingUpdate(tenantId,update,{eventType='billing.updated',requestId=null}={}){
+export async function applyBillingUpdate(tenantId,update,options={}){
+  return withSystemKeyLock('billing-tenant:'+tenantId,()=>applyBillingUpdateUnlocked(tenantId,update,options));
+}
+async function applyBillingUpdateUnlocked(tenantId,update,{eventType='billing.updated',requestId=null}={}){
   const tenant=await tenantRecord(tenantId); if(!tenant) throw new Error('BILLING_TENANT_NOT_FOUND');
   const current=await getJSON(BILLING_KEY,null);
   const incomingCreated=Number(update?.stripeEventCreated||0), currentCreated=Number(current?.stripeEventCreated||0);

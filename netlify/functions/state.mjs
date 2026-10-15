@@ -1,3 +1,4 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json } from '../lib/http.mjs';
 import { publicAuthState } from '../lib/auth.mjs';
@@ -10,7 +11,7 @@ import { DEFAULT_STRATEGY,normalizeStrategy,evaluateStrategy,diagnoseDecisions,s
 import { buildTrackRecord } from '../lib/track-record.mjs';
 import { listDecisionResponses } from '../lib/database.mjs';
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req);
   if(!session) return json({error:'UNAUTHORIZED'},401);
@@ -41,4 +42,4 @@ export default async (req,context)=>{
   };
   const trackRecord=buildTrackRecord({snapshots,decisions});
   return json({profile,settings,portfolio,worldState,traceStatus,decisions,decisionResponses,performance,snapshots:snapshots.slice(-120),trackRecord,auth,aiMirror,walletMirror,evolution:evolutionEnriched,paperOrders,watchlist,openAIStatus:openAIConnectionStatus(worldState),providers,commercial,persistence:persistenceStatus(),serverTime:new Date().toISOString()});
-};
+});

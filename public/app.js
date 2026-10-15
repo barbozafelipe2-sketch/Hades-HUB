@@ -29,9 +29,9 @@ async function api(path,options={}){
 }
 function esc(v=''){return String(v).replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
 function safeHttpUrl(v=''){try{const u=new URL(String(v));return ['http:','https:'].includes(u.protocol)?u.href:'';}catch{return '';}}
-function money(v){const n=Number(v||0); const c=state?.profile?.baseCurrency||'USD'; return new Intl.NumberFormat('en-US',{style:'currency',currency:c,maximumFractionDigits:Math.abs(n)>999?0:2}).format(n);}
+function money(v){const n=Number(v||0); const c='USD'; return new Intl.NumberFormat('en-US',{style:'currency',currency:c,maximumFractionDigits:Math.abs(n)>999?0:2}).format(n);}
 function pct(v,d=2){if(v==null||v===''||Number.isNaN(Number(v))) return '—'; const n=Number(v); if(!Number.isFinite(n)) return '—'; const x=n*100; return `${x>0?'+':''}${x.toFixed(d)}%`;}
-function dateLabel(s){ if(!s) return 'Not yet'; const d=new Date(s); return isNaN(d)?s:d.toLocaleString(); }
+function dateLabel(s){ if(!s) return 'Not yet'; const d=new Date(s); return isNaN(d)?'Invalid date':d.toLocaleString(); }
 function friendlyError(msg){
   const m=String(msg||'');
   if(/TRIAL_EXPIRED/i.test(m)) return 'Your KAIROS trial has ended. Open Settings → Subscription & Usage to activate access.';
@@ -255,7 +255,7 @@ function syncTopbar(){
 }
 
 function render(){ if(!state)return; const c=$('#content'); c.innerHTML=({home:renderHome,broker:renderBrokerHome,aimirror:renderAIMirror,wallet:renderWalletMirror,performance:renderPerformanceMirror,insight:renderInsight,settings:renderSettings,asset:renderAssetDetail}[currentSection]||renderHome)(); wireScreen(); syncTopbar(); renderTraceMini(); renderHealth();}
-function renderTraceMini(){ if(!state)return; const s=state.traceStatus||{}; const el=$('#traceMini'); if(!el)return; el.innerHTML=`<div class="row"><strong>Living Decision History</strong><span class="badge ${s.lastError?'abstain':'action'}">${s.catchupRunning?'RECOVERING':s.lastError?'ERROR':'ACTIVE'}</span></div><div class="tiny" style="margin-top:8px">Last completed: ${esc(s.lastSuccessfulDate||'No daily trace yet')}</div>${s.lastError?`<div class="tiny red" style="margin-top:6px">${esc(s.lastError.slice(0,140))}</div>`:''}`; }
+function renderTraceMini(){ if(!state)return; const s=state.traceStatus||{}; const el=$('#traceMini'); if(!el)return; el.innerHTML=`<div class="row"><strong>Living Decision History</strong><span class="badge ${s.lastError?'abstain':'action'}">${s.catchupRunning?'RECOVERING':s.lastError?'ERROR':s.lastSuccessfulDate?'RECORDED':'NOT STARTED'}</span></div><div class="tiny" style="margin-top:8px">Last completed: ${esc(s.lastSuccessfulDate||'No daily trace yet')}</div>${s.lastError?`<div class="tiny red" style="margin-top:6px">${esc(s.lastError.slice(0,140))}</div>`:''}`; }
 function renderHealth(){
  if(!state)return;
  const d=state.portfolio?.derived||{}, pr=state.providers||{}, pers=state.persistence||{};
@@ -302,7 +302,7 @@ function filterSnapshots(range){const all=state.snapshots||[]; if(range==='ALL')
 function calcPerf(snaps){if(snaps.length<2)return {ready:false,points:snaps}; let growth=1,series=[100],returns=[];for(let i=1;i<snaps.length;i++){const a=+snaps[i-1].portfolioValue,b=+snaps[i].portfolioValue,flow=+snaps[i].netExternalFlow||0;if(a<=0){series.push(series.at(-1));continue}const r=(b-flow-a)/a;returns.push(r);growth*=1+r;series.push(growth*100)}let peak=series[0],dd=0;for(const v of series){peak=Math.max(peak,v);dd=Math.min(dd,(v-peak)/peak)}const b=snaps.map(x=>({...x,_spy:+(x.spyPrice??x.sp500Level)})).filter(x=>Number.isFinite(x._spy)&&x._spy>0);return {ready:true,totalReturn:growth-1,maxDrawdown:dd,series,benchmarkReturn:b.length>=2?(b.at(-1)._spy/b[0]._spy-1):null,complete:snaps.every(x=>x.completeMarks!==false)};}
 function renderPerformance(){const snaps=filterSnapshots(perfRange),p=calcPerf(snaps); const decisionStats=scoredDecisionStats();return `<div class="panel"><div class="section-title"><div><h3>Performance Mirror</h3><p>Only recorded KAIROS history appears here.</p></div><div class="subtabs">${['1M','3M','1Y','ALL'].map(r=>`<button class="tab-btn ${perfRange===r?'active':''}" data-perf-range="${r}">${r}</button>`).join('')}</div></div>${!p.ready?`<div class="alert warn">Need at least two snapshots inside this range. Recorded: ${snaps.length}. Daily Decision History will build this automatically after deployment.</div>`:`<div class="cards-4"><div class="card"><div class="muted">Portfolio TWR</div><div class="value ${p.totalReturn>=0?'green':'red'}">${pct(p.totalReturn)}</div></div><div class="card"><div class="muted">Max Drawdown</div><div class="value">${pct(p.maxDrawdown)}</div></div><div class="card"><div class="muted">SPY benchmark</div><div class="value">${p.benchmarkReturn==null?'N/A':pct(p.benchmarkReturn)}</div></div><div class="card"><div class="muted">Mark integrity</div><div class="value ${p.complete?'green':'gold'}" style="font-size:24px">${p.complete?'Complete':'Mixed'}</div></div></div><div class="chart-wrap" style="margin-top:16px">${lineChart(p.series,null,null,['#1B4C93'])}</div>`}</div>
  <div class="two-col"><div class="panel"><div class="section-title"><div><h3>Decision Scorecard</h3><p>Only matured ADD/REDUCE decisions are directionally scored.</p></div></div><div class="cards-3"><div class="card"><strong>${decisionStats.eligible}</strong><div class="tiny">Eligible outcomes</div></div><div class="card"><strong>${decisionStats.hitRate==null?'N/A':(decisionStats.hitRate*100).toFixed(0)+'%'}</strong><div class="tiny">Directional hit rate</div></div><div class="card"><strong>${decisionStats.noAction}</strong><div class="tiny">No Action / Hold observations</div></div></div></div><div class="panel"><div class="section-title"><div><h3>The Mirror speaks</h3><p>What can honestly be claimed today.</p></div></div>${p.ready?`<div class="alert good">KAIROS has ${snaps.length} recorded snapshots in this range. Metrics are calculated from those observations.</div>`:`<div class="alert warn">There is not enough recorded history to claim performance yet. That is intentional.</div>`}<div class="tiny" style="margin-top:10px">Deposits and withdrawals are separated from investment return in the TWR calculation.</div></div></div>`;}
-function scoredDecisionStats(){let eligible=0,hits=0,noAction=0;for(const d of state.decisions||[]){if(['NO_ACTION','HOLD','WATCH','ABSTAIN'].includes(d.final?.status))noAction++;const mature=(d.outcomes||[]).filter(o=>o.daysSinceDecision>=7);if(['ADD','REDUCE'].includes(d.final?.status)&&mature.length){eligible++;if(mature.at(-1).directionalCorrect)hits++;}}return {eligible,hitRate:eligible?hits/eligible:null,noAction};}
+function scoredDecisionStats(){const d=state?.trackRecord?.decision||{},c=d.calibration||{};return {eligible:c.eligible||0,hitRate:c.hitRate??null,noAction:d.noActionObservations||0};}
 
 function renderPortfolio(){const p=state.portfolio.derived;return `<div class="panel"><div class="section-title"><div><h3>Portfolio Digital Twin</h3><p>Transaction ledger is the source of truth.</p></div><div class="action-row"><button class="primary-btn" id="addTxBtn">Add transaction</button><button class="ghost-btn" id="addOpeningBtn">Add opening position</button></div></div><div class="cards-4"><div class="card"><div class="muted">Total Value</div><div class="value">${money(p.totalValue)}</div></div><div class="card"><div class="muted">Cash</div><div class="value">${money(p.cash)}</div></div><div class="card"><div class="muted">Income</div><div class="value green">${money(p.income)}</div></div><div class="card"><div class="muted">Fees + Taxes</div><div class="value">${money(p.totalFees+p.totalTaxes)}</div></div></div>${p.warnings?.length?`<div class="alert bad" style="margin-top:14px">${p.warnings.map(esc).join('<br>')}</div>`:''}</div>
  <div class="two-col"><div class="panel"><div class="section-title"><div><h3>Holdings</h3><p>Derived from ledger + current marks.</p></div></div>${holdingTable()}</div><div class="panel"><div class="section-title"><div><h3>Allocation</h3><p>Current market-value weights.</p></div></div>${allocation()}</div></div>
@@ -383,10 +383,10 @@ function renderMarketCollections(){
     ['Alts','Real Assets','Listed real estate',''],
     ['Intl','Global','World · emerging markets','']
   ];
-  return `<div class="v7-market-collections">${defs.map(([id,label,sub,tone])=>{const list=(marketUniverse||[]).filter(x=>categoryOfKind(x.kind)===id);const ready=list.filter(x=>Number.isFinite(Number(x.periodReturn)));const avg=ready.length?ready.reduce((a,x)=>a+Number(x.periodReturn),0)/ready.length:null;return `<button type="button" class="v7-market-collection ${tone} ${brokerCategory===id?'active':''}" data-broker-cat="${id}"><span>MARKET</span><strong>${esc(label)}</strong><small>${esc(sub)}</small><b class="${avg==null?'muted':avg>=0?'green':'red'}">${avg==null?`${list.length} assets`:pct(avg,1)}</b></button>`}).join('')}</div>`;
+  return `<div class="v7-market-collections">${defs.map(([id,label,sub,tone])=>{const list=(marketUniverse||[]).filter(x=>categoryOfKind(x.kind)===id);const ready=list.filter(x=>x.periodReturn!=null&&Number.isFinite(Number(x.periodReturn)));const avg=ready.length?ready.reduce((a,x)=>a+Number(x.periodReturn),0)/ready.length:null;return `<button type="button" class="v7-market-collection ${tone} ${brokerCategory===id?'active':''}" data-broker-cat="${id}"><span>MARKET</span><strong>${esc(label)}</strong><small>${esc(sub)}</small><b class="${avg==null?'muted':avg>=0?'green':'red'}">${avg==null?`${list.length} assets`:pct(avg,1)}</b></button>`}).join('')}</div>`;
 }
 function renderMarketPulse(){
-  const rows=(marketUniverse||[]).filter(x=>Number.isFinite(Number(x.periodReturn))).slice().sort((a,b)=>Math.abs(Number(b.periodReturn))-Math.abs(Number(a.periodReturn))).slice(0,6);
+  const rows=(marketUniverse||[]).filter(x=>x.periodReturn!=null&&Number.isFinite(Number(x.periodReturn))).slice().sort((a,b)=>Math.abs(Number(b.periodReturn))-Math.abs(Number(a.periodReturn))).slice(0,6);
   if(!rows.length) return `<div class="v7-empty compact"><span>Market pulse appears after fresh prices / history are available.</span></div>`;
   return `<div class="v7-market-pulse">${rows.map(x=>`<button type="button" class="v7-pulse-item" data-market-open="${esc(x.id)}"><strong>${esc(x.symbol)}</strong><b class="${Number(x.periodReturn)>=0?'green':'red'}">${pct(x.periodReturn)}</b><small>${esc(x.label)}</small><span>${esc(categoryOfKind(x.kind))}</span></button>`).join('')}</div>`;
 }
@@ -397,12 +397,12 @@ function marketSwitcher(active=selectedMarketId,includeAll=false){
 }
 function confPct(raw){
   if(raw==null||raw==='') return null;
-  if(typeof raw==='number' && Number.isFinite(raw)) return Math.max(0,Math.min(100,raw<=1?Math.round(raw*100):Math.round(raw)));
+  if(typeof raw==='number') return null;
   const s=String(raw).toLowerCase();
-  if(s.includes('high')||s==='h') return 78;
-  if(s.includes('med')||s==='m') return 62;
-  if(s.includes('low')||s==='l') return 42;
-  const n=Number(raw); if(Number.isFinite(n)) return Math.max(0,Math.min(100,n<=1?Math.round(n*100):Math.round(n)));
+  if(s.includes('high')||s==='h') return 'HIGH';
+  if(s.includes('med')||s==='m') return 'MODERATE';
+  if(s.includes('low')||s==='l') return 'LOW';
+  if(Number.isFinite(Number(raw))) return null;
   return null;
 }
 function sentimentBadge(ret){
@@ -421,7 +421,7 @@ function universeCard(x){
   const active=selectedMarketId===x.id?'active':'';
   const badge=sentimentBadge(ret);
   const conf=confPct(x?.current?.confidence);
-  const confShow=conf!=null?conf:((x.series&&x.series.length>2)?58:null);
+  const confShow=conf;
   const whyBits=[];
   const decision=(state.decisions||[]).find(d=>d.asset===x.symbol);
   if(decision?.final?.why?.[0]) whyBits.push(decision.final.why[0]);
@@ -443,7 +443,7 @@ function universeCard(x){
   </div>
   <div class="mkt-card-foot">
     <span class="mkt-badge ${badge.cls}">${badge.label}</span>
-    ${confShow!=null?`<span class="mkt-conf-mini">${confShow}%</span>`:''}
+    ${confShow!=null?`<span class="mkt-conf-mini">${confShow}${typeof confShow==='number'?'%':''}</span>`:''}
     <button type="button" class="mkt-star ${(state?.watchlist||[]).includes(x.symbol)?'active':''}" data-watch-toggle="${esc(x.symbol)}" aria-label="Toggle watchlist">${(state?.watchlist||[]).includes(x.symbol)?'★':'☆'}</button>
     <button type="button" class="mkt-why" data-mkt-why="${esc(x.id)}" data-mkt-sym="${esc(x.symbol)}">Why?</button>
     <button type="button" class="mkt-sim" data-broker-trade="BUY" data-symbol="${esc(x.symbol)}" aria-label="Simulate Buy">↗</button>
@@ -470,7 +470,7 @@ function formatRejectReasons(gateOrMirror){
 function selectedMarket(){ return (marketUniverse||[]).find(x=>x.id===selectedMarketId)||marketUniverse?.[0]||null; }
 function marketContextInsight(x){
   if(!x) return 'Select a market to inspect its recorded context.';
-  const ret=Number(x.periodReturn); const regime=state.worldState?.regime?.name||'unclassified regime';
+  const ret=x.periodReturn==null?NaN:Number(x.periodReturn); const regime=state.worldState?.regime?.name||'unclassified regime';
   if(!Number.isFinite(ret)) return `${x.label} history is still building. KAIROS will not invent momentum before enough verified observations exist.`;
   const direction=ret>0.08?'strong positive recorded momentum':ret>0.02?'positive recorded momentum':ret<-0.08?'strong negative recorded momentum':ret<-0.02?'negative recorded momentum':'mostly flat recorded momentum';
   return `${x.label} currently shows ${direction} across KAIROS recorded states while the broader environment is ${regime}. This is context, not an automatic trade signal.`;
@@ -617,6 +617,7 @@ function latestDrawdown(){
   return dd;
 }
 function profileCompleteness(){
+  if(state?.settings?.onboardingComplete!==true)return 0;
   const p=state?.profile||{};
   const vals=[p.goal,p.targetAmount,p.horizon,p.riskStyle,p.contributionAmount,p.riskCapacity,p.maxDrawdownTolerance,p.liquidityNeed,p.emergencyReserveMonths,p.incomeStability];
   return Math.round(vals.filter(v=>v!==null&&v!==undefined&&String(v)!=='').length/vals.length*100);
@@ -640,8 +641,8 @@ function renderWorldModelStrip(){
   const r=w.regime||{}, b=w.benchmarks||{};
   const dims=[
     ['TREND',r.trend||'Unknown'],['LIQUIDITY',r.liquidity||'Unknown'],['VOLATILITY',r.volatility||'Unknown'],
-    ['US 10Y',Number.isFinite(Number(b.us10y_yield))?`${Number(b.us10y_yield).toFixed(2)}%`:'Unknown'],
-    ['DXY',Number.isFinite(Number(b.dxy))?Number(b.dxy).toFixed(2):'Unknown'],['SESSION',w.market_session||'Unknown']
+    ['US 10Y',b.us10y_yield!=null&&Number.isFinite(Number(b.us10y_yield))?`${Number(b.us10y_yield).toFixed(2)}%`:'Unknown'],
+    ['DXY',b.dxy!=null&&Number.isFinite(Number(b.dxy))?Number(b.dxy).toFixed(2):'Unknown'],['SESSION',w.market_session||'Unknown']
   ];
   return `<div class="v7-world-grid">${dims.map(([k,v])=>`<div class="v7-world-cell"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join('')}</div>`;
 }
@@ -897,7 +898,7 @@ function renderInvestmentMarkets(){
 function renderPerformanceMirror(){
   const pm=state.performanceMirror||{}, u=pm.user||{}, a=pm.ai||{}, b=pm.benchmark||{}, tr=state.trackRecord||{};
   const uv=u.totalReturn, av=a.totalReturn, bv=b.totalReturn;
-  const uSeries=(u.series||[]).map(x=>Number(x.value)).filter(Number.isFinite), aSeries=(a.series||[]).map(x=>Number(x.value)).filter(Number.isFinite), bSeries=(b.series||[]).map(x=>Number(x.value)).filter(Number.isFinite);
+  const uSeries=(u.series||[]), aSeries=(a.series||[]), bSeries=(b.series||[]);
   const stats=scoredDecisionStats(), evo=state.evolution||{}, leader=pm.leader==='SAURON'?'KAIROS':pm.leader;
   const missing=[]; if(!u.ready)missing.push(u.reason||'Wallet snapshots missing'); if(!a.ready)missing.push(a.reason||'AI Mirror history missing'); if(!b.ready)missing.push(b.reason||'Benchmark history missing');
   const cps=tr.decision?.checkpointStats||[], trPerf=tr.performance||{}, trPeriod=tr.period||{}, trHash=tr.integrity?.evidenceHash||'';
@@ -905,7 +906,7 @@ function renderPerformanceMirror(){
   return `<section class="v7-screen v7-performance"><header class="v7-page-head"><div><div class="v7-kicker">DECISION JOURNAL · TRACK RECORD</div><h1>Review the record, not a promise.</h1><p>Compare saved paper evidence with SPY over the selected period. Outcomes appear only after their point-in-time checkpoints mature.</p></div><button class="ghost-btn" data-go="insight" data-insight-pane="evolution">Learning Lab</button></header>
   ${missing.length?`<div class="alert warn"><strong>Comparison still building.</strong><ul>${missing.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:''}
   <div class="v7-metric-grid performance-metrics"><article class="v7-metric"><span>YOUR WALLET</span><strong class="${Number(uv)>=0?'green':'red'}">${uv==null?'—':pct(uv)}</strong><small>${u.ready?'Recorded TWR':'Needs snapshots'}</small></article><article class="v7-metric accent-blue"><span>KAIROS MIRROR</span><strong class="${Number(av)>=0?'green':'red'}">${av==null?'—':pct(av)}</strong><small>${a.ready?'Paper shadow performance':'Run AI Mirror'}</small></article><article class="v7-metric"><span>SPY</span><strong>${bv==null?'—':pct(bv)}</strong><small>${b.ready?'Recorded benchmark':'Refresh market history'}</small></article><article class="v7-metric"><span>DECISION CALIBRATION</span><strong>${stats.hitRate==null?'Building':pct(stats.hitRate,0)}</strong><small>${stats.eligible} matured actionable outcome(s)</small></article><article class="v7-metric"><span>CHAMPION</span><strong>${esc(evo.champion?.version||'1.0.0')}</strong><small>${esc(evo.champion?.name||'Baseline Decision Review')}</small></article><article class="v7-metric"><span>LEADER</span><strong>${esc(leader||'Building')}</strong><small>Descriptive simulation only</small></article></div>
-  <section class="v7-card performance-chart-card"><div class="v7-section-head"><div><span class="v7-kicker">NORMALIZED PERFORMANCE CURVE</span><h2>Same starting index · 100</h2></div><span class="badge ${leader&&leader!=='BUILDING'?'action':'watch'}">${esc(leader||'BUILDING')}</span></div>${Math.max(uSeries.length,aSeries.length,bSeries.length)>=2?lineChart(uSeries.length?uSeries:null,aSeries.length?aSeries:null,bSeries.length?bSeries:null,['#B59410','#5AA1FF','#8D8D92']):`<div class="v7-empty"><strong>Not enough recorded observations.</strong><span>Wallet snapshots, an approved AI Mirror and benchmark history are required.</span></div>`}<div class="chart-legend"><span><i class="legend-you"></i>Your Wallet</span><span><i class="legend-ai"></i>KAIROS Mirror</span><span><i class="legend-bench"></i>SPY</span></div></section>
+  <section class="v7-card performance-chart-card"><div class="v7-section-head"><div><span class="v7-kicker">NORMALIZED PERFORMANCE CURVE</span><h2>Same starting index · 100</h2><p class="tiny">${pm.period?`${esc(pm.period.startDate)} → ${esc(pm.period.endDate)} · common recorded dates`:'Comparison needs at least two common recorded dates.'} AI intervals require complete allocation price coverage.</p></div><span class="badge ${leader&&leader!=='BUILDING'?'action':'watch'}">${esc(leader||'BUILDING')}</span></div>${Math.max(uSeries.length,aSeries.length,bSeries.length)>=2?lineChart(uSeries.length?uSeries:null,aSeries.length?aSeries:null,bSeries.length?bSeries:null,['#B59410','#5AA1FF','#8D8D92']):`<div class="v7-empty"><strong>Not enough recorded observations.</strong><span>Wallet snapshots, an approved AI Mirror and benchmark history are required.</span></div>`}<div class="chart-legend"><span><i class="legend-you"></i>Your Wallet</span><span><i class="legend-ai"></i>KAIROS Mirror</span><span><i class="legend-bench"></i>SPY</span></div></section>
   <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">TRACK RECORD LEDGER</span><h2>Recorded evidence, not a promise.</h2></div><div class="action-row"><span class="badge ${tr.evidenceState==='RECORDED'?'action':'watch'}">${esc(tr.evidenceState||'BUILDING')}</span><button class="ghost-btn" id="exportTrackRecordBtn">Export evidence JSON</button></div></div>
     <div class="cards-4"><div class="card"><div class="muted">Recorded period</div><strong>${esc(trPeriod.startDate||'—')} → ${esc(trPeriod.endDate||'—')}</strong><div class="tiny">${Number(trPeriod.completeSnapshotCount||0)} complete of ${Number(trPeriod.snapshotCount||0)} snapshots</div></div><div class="card"><div class="muted">Relative return vs SPY</div><div class="value ${Number(trPerf.relativeToSpy)>=0?'green':'red'}">${trPerf.relativeToSpy==null?'—':pct(trPerf.relativeToSpy)}</div><div class="tiny">Descriptive difference over the matched recorded period.</div></div><div class="card"><div class="muted">Matured actionable decisions</div><div class="value">${Number(tr.decision?.maturedActionableDecisions||0)}</div><div class="tiny">${Number(tr.decision?.scoredPointInTimeOutcomes||0)} point-in-time outcome observations</div></div><div class="card"><div class="muted">Evidence hash</div><strong style="font-family:monospace;font-size:14px">${esc(trHash?trHash.slice(0,16)+'…':'—')}</strong><div class="tiny">SHA-256 change detection · not an external audit.</div></div></div>
     <div class="v7-section-head" style="margin-top:22px"><div><span class="v7-kicker">MONTH BY MONTH</span><h2>Reviews and recorded relative return</h2><p class="tiny">Monthly paper results are descriptive. Follow-through is not measured yet; KAIROS will not infer it from nearby trades.</p></div></div>
@@ -938,7 +939,7 @@ function renderSettings(){
   return `<section class="v7-screen v7-settings"><header class="v7-page-head"><div><div class="v7-kicker">PROFILE & SYSTEM</div><h1>Your financial twin, controls and trust layer.</h1><p>Customer-facing screens never receive infrastructure API keys. Provider credentials remain server-side.</p></div><button class="ghost-btn" id="researchOpenAdvisor">Ask KAIROS</button></header>
   ${must?`<div class="alert bad must-change-banner"><strong>Security action required:</strong> default credentials are active. Set a new password below before any shared use.</div>`:''}
   <div class="v7-settings-grid">
-    <section class="v7-card v7-span-2"><div class="v7-section-head"><div><span class="v7-kicker">DIGITAL TWIN</span><h2>Investment profile</h2></div><div class="v7-profile-score"><strong>${prof}%</strong><span>complete</span></div></div><div class="form-grid v7-profile-form"><div class="field"><label>Name</label><input id="sName" class="text-input" value="${esc(state.profile.name)}"></div><div class="field"><label>Email · optional</label><input id="sEmail" class="text-input" value="${esc(state.profile.email||'')}"></div><div class="field"><label>Country</label><input id="sCountry" class="text-input" value="${esc(state.profile.country)}"></div><div class="field"><label>Base currency</label><select id="sCurrency" class="select">${['USD','EUR','BRL','GBP'].map(x=>`<option ${state.profile.baseCurrency===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Primary goal</label><input id="sGoal" class="text-input" value="${esc(state.profile.goal)}"></div><div class="field"><label>Target amount</label><input id="sTarget" type="number" class="text-input" value="${Number(state.profile.targetAmount||0)}"></div><div class="field"><label>Horizon</label><select id="sHorizon" class="select">${['<1y','1-3y','3-10y','10y+'].map(x=>`<option ${state.profile.horizon===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Contribution</label><input id="sContribution" type="number" class="text-input" value="${Number(state.profile.contributionAmount||0)}"></div><div class="field"><label>Experience</label><select id="sExperience" class="select">${['Beginner','Intermediate','Advanced'].map(x=>`<option ${state.profile.experience===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Risk capacity</label><select id="sRiskCapacity" class="select">${['Low','Moderate','High'].map(x=>`<option ${state.profile.riskCapacity===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Max drawdown tolerance · %</label><input id="sDrawdown" type="number" min="0" max="95" class="text-input" value="${Number(state.profile.maxDrawdownTolerance||20)}"></div><div class="field"><label>Liquidity need</label><select id="sLiquidity" class="select">${['Low','Moderate','High'].map(x=>`<option ${state.profile.liquidityNeed===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Emergency reserve · months</label><input id="sReserve" type="number" min="0" class="text-input" value="${Number(state.profile.emergencyReserveMonths||0)}"></div><div class="field"><label>Income stability</label><select id="sIncomeStability" class="select">${['Stable','Variable','Unstable'].map(x=>`<option ${state.profile.incomeStability===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Tax residency</label><input id="sTaxResidency" class="text-input" value="${esc(state.profile.taxResidency||state.profile.country||'')}"></div></div><div class="v7-setting-block"><span class="v7-kicker">RISK STYLE</span><div class="choice-grid">${['Conservative','Moderate','Aggressive'].map(x=>`<div class="choice ${state.profile.riskStyle===x?'active':''}" data-risk="${x}"><strong>${x}</strong><div class="tiny">${x==='Conservative'?'Preserve capital and limit volatility.':x==='Moderate'?'Balance growth with downside discipline.':'Accept larger drawdowns for higher growth potential.'}</div></div>`).join('')}</div></div><button class="primary-btn" id="saveProfileBtn">Save Digital Twin</button></section>
+    <section class="v7-card v7-span-2"><div class="v7-section-head"><div><span class="v7-kicker">DIGITAL TWIN</span><h2>Investment profile</h2></div><div class="v7-profile-score"><strong>${prof}%</strong><span>complete</span></div></div><div class="form-grid v7-profile-form"><div class="field"><label>Name</label><input id="sName" class="text-input" value="${esc(state.profile.name)}"></div><div class="field"><label>Email · optional</label><input id="sEmail" class="text-input" value="${esc(state.profile.email||'')}"></div><div class="field"><label>Country</label><input id="sCountry" class="text-input" value="${esc(state.profile.country)}"></div><div class="field"><label>Base currency</label><select id="sCurrency" class="select">${['USD'].map(x=>`<option ${state.profile.baseCurrency===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Primary goal</label><input id="sGoal" class="text-input" value="${esc(state.profile.goal)}"></div><div class="field"><label>Target amount</label><input id="sTarget" type="number" class="text-input" value="${Number(state.profile.targetAmount||0)}"></div><div class="field"><label>Horizon</label><select id="sHorizon" class="select">${['<1y','1-3y','3-10y','10y+'].map(x=>`<option ${state.profile.horizon===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Contribution</label><input id="sContribution" type="number" class="text-input" value="${Number(state.profile.contributionAmount||0)}"></div><div class="field"><label>Experience</label><select id="sExperience" class="select">${['Beginner','Intermediate','Advanced'].map(x=>`<option ${state.profile.experience===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Risk capacity</label><select id="sRiskCapacity" class="select">${['Low','Moderate','High'].map(x=>`<option ${state.profile.riskCapacity===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Max drawdown tolerance · %</label><input id="sDrawdown" type="number" min="0" max="95" class="text-input" value="${Number(state.profile.maxDrawdownTolerance||20)}"></div><div class="field"><label>Liquidity need</label><select id="sLiquidity" class="select">${['Low','Moderate','High'].map(x=>`<option ${state.profile.liquidityNeed===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Emergency reserve · months</label><input id="sReserve" type="number" min="0" class="text-input" value="${Number(state.profile.emergencyReserveMonths||0)}"></div><div class="field"><label>Income stability</label><select id="sIncomeStability" class="select">${['Stable','Variable','Unstable'].map(x=>`<option ${state.profile.incomeStability===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Tax residency</label><input id="sTaxResidency" class="text-input" value="${esc(state.profile.taxResidency||state.profile.country||'')}"></div></div><div class="v7-setting-block"><span class="v7-kicker">RISK STYLE</span><div class="choice-grid">${['Conservative','Moderate','Aggressive'].map(x=>`<div class="choice ${state.profile.riskStyle===x?'active':''}" data-risk="${x}"><strong>${x}</strong><div class="tiny">${x==='Conservative'?'Preserve capital and limit volatility.':x==='Moderate'?'Balance growth with downside discipline.':'Accept larger drawdowns for higher growth potential.'}</div></div>`).join('')}</div></div><button class="primary-btn" id="saveProfileBtn">Save Digital Twin</button></section>
 
     <section class="v7-card"><div class="v7-section-head"><div><span class="v7-kicker">BROKER PREFERENCES</span><h2>Paper execution</h2></div></div><div class="v7-setting-rows"><div><span>Fractional shares</span><strong>Enabled</strong></div><div><span>Order types</span><strong>Market · Limit · Stop · Stop Limit</strong></div><div><span>Execution</span><strong>Fresh stored marks only</strong></div><div><span>Real brokerage</span><strong>Not connected</strong></div></div><div class="tiny">Open paper orders are persistent and evaluated on market refresh / Decision History. They never reach a real broker.</div></section>
 
@@ -1012,7 +1013,7 @@ function wireScreen(){
   $('#privacyTrackBtn')?.addEventListener('click',exportTrackRecord);
   $('#deleteWorkspaceBtn')?.addEventListener('click',deleteWorkspace);
   $('#launchReadinessBtn')?.addEventListener('click',e=>runLaunchReadiness(e.currentTarget));
-  $('#researchOpenAdvisor')?.addEventListener('click',()=>openAdvisor('Insight')); $$('[data-insight-pane]').forEach(b=>b.onclick=()=>{insightPane=b.dataset.insightPane;render();});
+  $('#researchOpenAdvisor')?.addEventListener('click',()=>openAdvisor('Insight')); $$('[data-insight-pane]').forEach(b=>b.onclick=()=>{insightPane=b.dataset.insightPane;if(b.dataset.go) nav(b.dataset.go);else render();});
   $('#discardEvolutionBtn')?.addEventListener('click',discardEvolution);
   const pickAssetFromBtn=async(b)=>{
     if(!b) return;
@@ -1059,7 +1060,7 @@ async function runProviderHealthTest(btn){
   loading(btn,true,'Pinging');
   try{
     const r=await api('provider-health',{method:'POST',body:JSON.stringify({failoverTest:true}),timeoutMs:90000});
-    const rows=['openai','anthropic','gemini','twelve','finnhub'].map(k=>{
+    const rows=['licensed','openai','anthropic','gemini','twelve','finnhub'].map(k=>{
       const p=r.providers?.[k]||{};
       const status=!p.keyDetected?'NOT CONFIGURED':(p.requestOk===true)?'VERIFIED':(p.lastError?'FAIL':'CONFIGURED / UNVERIFIED');
       const lat=p.latencyMs?`${p.latencyMs}ms`:'—';
@@ -1369,9 +1370,9 @@ async function openBillingPortal(){
   catch(e){toast(friendlyError(e.message||e)); loading(btn,false);}
 }
 
-async function saveProfile(){const p={...state.profile,name:$('#sName').value.trim(),email:$('#sEmail').value.trim(),country:$('#sCountry').value.trim(),baseCurrency:$('#sCurrency').value,goal:$('#sGoal').value.trim(),targetAmount:Number($('#sTarget').value||0),horizon:$('#sHorizon').value,contributionAmount:Number($('#sContribution').value||0),experience:$('#sExperience').value,riskCapacity:$('#sRiskCapacity').value,maxDrawdownTolerance:Number($('#sDrawdown').value||0),liquidityNeed:$('#sLiquidity').value,emergencyReserveMonths:Number($('#sReserve').value||0),incomeStability:$('#sIncomeStability').value,taxResidency:$('#sTaxResidency').value.trim()};try{await api('account',{method:'POST',body:JSON.stringify({action:'saveProfile',profile:p})});await loadState();nav('settings');toast('Profile saved.')}catch(e){toast(e.message)}}
-async function saveRisk(riskStyle){try{await api('account',{method:'POST',body:JSON.stringify({action:'saveProfile',profile:{...state.profile,riskStyle}})});await loadState();nav('settings')}catch(e){toast(e.message)}}
-async function saveDisplay(displayMode){try{await api('account',{method:'POST',body:JSON.stringify({action:'saveSettings',settings:{...state.settings,displayMode}})});await loadState();nav('settings')}catch(e){toast(e.message)}}
+async function saveProfile(riskStyle=state.profile.riskStyle){if(typeof riskStyle!=='string')riskStyle=state.profile.riskStyle;const p={...state.profile,riskStyle,name:$('#sName').value.trim(),email:$('#sEmail').value.trim(),country:$('#sCountry').value.trim(),baseCurrency:$('#sCurrency').value,goal:$('#sGoal').value.trim(),targetAmount:Number($('#sTarget').value||0),horizon:$('#sHorizon').value,contributionAmount:Number($('#sContribution').value||0),experience:$('#sExperience').value,riskCapacity:$('#sRiskCapacity').value,maxDrawdownTolerance:Number($('#sDrawdown').value||0),liquidityNeed:$('#sLiquidity').value,emergencyReserveMonths:Number($('#sReserve').value||0),incomeStability:$('#sIncomeStability').value,taxResidency:$('#sTaxResidency').value.trim()};try{await api('account',{method:'POST',body:JSON.stringify({action:'saveProfile',profile:p})});await loadState();nav('settings');toast('Profile saved.')}catch(e){toast(e.message)}}
+async function saveRisk(riskStyle){await saveProfile(riskStyle);}
+async function saveDisplay(displayMode){if($('#sName')) await saveProfile();try{await api('account',{method:'POST',body:JSON.stringify({action:'saveSettings',settings:{...state.settings,displayMode}})});await loadState();nav('settings')}catch(e){toast(e.message)}}
 async function saveSystemSettings(){try{await api('account',{method:'POST',body:JSON.stringify({action:'saveSettings',settings:{...state.settings,autoMarketMarks:$('#sAutoMarks').checked}})});await loadState();nav('settings');toast('System settings saved.')}catch(e){toast(e.message)}}
 async function changeCredentials(){const identityAuth=state.auth?.authProvider==='netlify_identity',newUsername=$('#sUsername')?.value.trim()||'';if(identityAuth){try{await api('account',{method:'POST',body:JSON.stringify({action:'updateCredentials',newUsername})});await loadState();nav('settings');toast('Display username saved.')}catch(e){toast(e.message)}return}const currentPassword=$('#sCurrentPw')?.value||'',newPassword=$('#sNewPw')?.value||'';if(!currentPassword){toast('Current password required.');return}try{await api('account',{method:'POST',body:JSON.stringify({action:'updateCredentials',currentPassword,newPassword,newUsername})});toast('Credentials changed. Please sign in again.');setTimeout(()=>location.reload(),800)}catch(e){toast(e.message)}}
 async function exportBackup(){try{const b=await api('backup');const blob=new Blob([JSON.stringify(b,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`kairos-workspace-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href)}catch(e){toast(e.message)}}
@@ -1422,7 +1423,15 @@ function showOnboarding(){
   document.body.appendChild(el); paint();
 }
 
-function lineChart(s1=[],s2=null,s3=null,colors=['#f2c94c','#b8c4d6','#ffae42']){if(!s1?.length)return `<div class="alert warn">No chart observations yet.</div>`;const series=[s1,s2,s3].filter(x=>x?.length),all=series.flat(),W=760,H=270,P=22,min=Math.min(...all),max=Math.max(...all);const path=s=>s.map((v,i)=>{const x=P+i*(W-2*P)/(s.length-1||1),y=H-P-((v-min)/(max-min||1))*(H-2*P);return `${i?'L':'M'} ${x.toFixed(1)} ${y.toFixed(1)}`}).join(' ');return `<svg class="chart chart-glow" viewBox="0 0 ${W} ${H}">${[0,1,2,3,4].map(i=>`<line x1="${P}" y1="${P+i*(H-2*P)/4}" x2="${W-P}" y2="${P+i*(H-2*P)/4}" stroke="rgba(255,255,255,.06)"/>`).join('')}${series.map((s,i)=>`<path d="${path(s)}" fill="none" stroke="${colors[i]}" stroke-width="${i?2.2:3}"/>`).join('')}</svg>`;}
+function lineChart(s1=[],s2=null,s3=null,colors=['#f2c94c','#b8c4d6','#ffae42']){
+  const dated=[s1,s2,s3].some(s=>s?.some(p=>p&&typeof p==='object'&&p.date));
+  const series=[s1,s2,s3].map((s,index)=>({index,points:(s||[]).map((p,i)=>({x:dated?Date.parse(p?.date):i,value:typeof p==='object'?Number(p.value):Number(p)})).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.value))})).filter(s=>s.points.length);
+  if(!series.length)return '<div class="alert warn">No chart observations yet.</div>';
+  const all=series.flatMap(s=>s.points),W=760,H=270,P=30,min=Math.min(...all.map(p=>p.value)),max=Math.max(...all.map(p=>p.value)),left=Math.min(...all.map(p=>p.x)),right=Math.max(...all.map(p=>p.x));
+  const path=s=>s.map((p,i)=>`${i?'L':'M'} ${(P+(p.x-left)*(W-2*P)/(right-left||1)).toFixed(1)} ${(H-P-(p.value-min)/(max-min||1)*(H-2*P)).toFixed(1)}`).join(' ');
+  const label=x=>dated?new Date(x).toISOString().slice(0,10):`Point ${x+1}`;
+  return `<svg class="chart chart-glow" role="img" aria-label="Recorded series from ${esc(label(left))} to ${esc(label(right))}" viewBox="0 0 ${W} ${H}"><title>Recorded observations</title><desc>Range ${min.toFixed(2)} to ${max.toFixed(2)}. Missing series are omitted.</desc>${series.map(s=>`<path d="${path(s.points)}" fill="none" stroke="${colors[s.index]||colors[0]}" stroke-width="${s.index?2.2:3}"/>`).join('')}<text x="${P}" y="${H-5}" fill="currentColor" font-size="12">${esc(label(left))}</text><text x="${W-P}" y="${H-5}" text-anchor="end" fill="currentColor" font-size="12">${esc(label(right))}</text></svg>`;
+}
 function greeting(){const h=new Date().getHours();return h<12?'morning':h<18?'afternoon':'evening';}
 
 function openAdvisor(context='Current screen'){
@@ -1434,6 +1443,43 @@ function openAdvisor(context='Current screen'){
 function closeAdvisor(){const d=$('#advisorDrawer');if(!d)return;d.classList.remove('open');d.setAttribute('aria-hidden','true');}
 function openSystem(){const d=$('#systemDrawer');if(!d)return;d.classList.add('open');d.setAttribute('aria-hidden','false');}
 function closeSystem(){const d=$('#systemDrawer');if(!d)return;d.classList.remove('open');d.setAttribute('aria-hidden','true');}
+
+let activeDialog=null,dialogOpener=null,dialogInert=[];
+function syncAccessibility(){
+  document.querySelectorAll('.field').forEach(field=>{
+    const label=field.querySelector('label'),control=field.querySelector('input,select,textarea');
+    if(label&&control&&!control.labels?.length){if(!control.id)control.id='field-'+crypto.randomUUID();label.htmlFor=control.id;}
+  });
+  document.querySelectorAll('[data-risk],[data-display]').forEach(el=>{
+    el.setAttribute('role','button');el.tabIndex=0;
+    el.setAttribute('aria-pressed',String(el.classList.contains('active')));
+    el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};
+  });
+  const dialog=['#runtimeModal','#onboard','#signupModal','#advisorDrawer','#systemDrawer'].map(q=>document.querySelector(q)).find(el=>el&&el.getClientRects().length&&!el.classList.contains('hidden')&&el.getAttribute('aria-hidden')!=='true');
+  if(dialog===activeDialog)return;
+  for(const [el,was] of dialogInert)el.inert=was;dialogInert=[];
+  const previousOpener=dialogOpener;
+  activeDialog=dialog||null;
+  if(!dialog){dialogOpener=null;if(previousOpener?.isConnected)previousOpener.focus();return;}
+  dialogOpener=document.activeElement;
+  dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
+  if(!dialog.getAttribute('aria-labelledby')&&!dialog.getAttribute('aria-label'))dialog.setAttribute('aria-label',dialog.querySelector('h2,h3')?.textContent||'Dialog');
+  for(let branch=dialog;branch&&branch!==document.body;branch=branch.parentElement){
+    for(const sibling of branch.parentElement?.children||[]){if(sibling!==branch){dialogInert.push([sibling,sibling.inert]);sibling.inert=true;}}
+  }
+  const first=dialog.querySelector('button,input,select,textarea,[tabindex="0"]');
+  if(first)first.focus();else{dialog.tabIndex=-1;dialog.focus();}
+}
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Tab'||!activeDialog)return;
+  const controls=[...activeDialog.querySelectorAll('button,input,select,textarea,a[href],[tabindex="0"]')].filter(el=>!el.disabled&&el.getClientRects().length);
+  if(!controls.length){e.preventDefault();activeDialog.focus();return;}
+  const first=controls[0],last=controls.at(-1);
+  if(e.shiftKey&&(document.activeElement===first||!activeDialog.contains(document.activeElement))){e.preventDefault();last.focus();}
+  else if(!e.shiftKey&&(document.activeElement===last||!activeDialog.contains(document.activeElement))){e.preventDefault();first.focus();}
+});
+new MutationObserver(syncAccessibility).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','aria-hidden','style']});
+syncAccessibility();
 
 $$('.nav-btn,.footer-btn').forEach(b=>b.addEventListener('click',()=>nav(b.dataset.section)));
 $$('[data-go]').forEach(b=>b.addEventListener('click',()=>nav(b.dataset.go)));

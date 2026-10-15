@@ -115,6 +115,8 @@ async function buildPaperWalletFromAllocationUnlocked(opts={}){
     }
     const notional=moneyRound(qty*px.price);
     const buy=normalizeTransaction({
+      ...px,
+      asof:px.asOf,
       type:'BUY',
       symbol:sym,
       quantity:qty,
@@ -135,7 +137,7 @@ async function buildPaperWalletFromAllocationUnlocked(opts={}){
       priceSource:px.source,
       priceAsOf:px.asOf
     });
-    marksPatch[sym]={price:px.price, source:px.source||'build', asOf:px.asOf||new Date().toISOString(), confidence:'universe_or_research'};
+    marksPatch[sym]={...px};
   }
 
   if(!buys.length){

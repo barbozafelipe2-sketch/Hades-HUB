@@ -1,7 +1,10 @@
+import { freshMark } from './market-authority.mjs';
 /** Pure helpers for paper wallet build (no Netlify blobs / state imports). */
 
 export function detectBuildWalletIntent(question=''){
-  const q=String(question||'');
+  const q=String(question||'').trim();
+  if(/\b(not|never|don.t|explain|compare|how|why|example|hypothetical)\b/i.test(q)) return false;
+  if(!/^(please\s+)?(build|construct|create|allocate|apply|fund|fill|make|invest|deploy)\b/i.test(q)) return false;
   return /\b(build|construct|create|allocate|apply|fund|fill|make)\b.{0,40}\b(wallet|portfolio|allocation|holdings)\b|\b(allocate|invest|deploy)\b.{0,30}\b(budget|cash|capital|money|\$|usd)\b|\bapply\b.{0,20}\b(mirror|allocation)\b/i.test(q);
 }
 
@@ -33,21 +36,13 @@ export function extractBudgetFromMessage(question='', fallbacks={}){
 export function resolveKnownPrice(symbol, {marks={}, universe=[]}={}){
   const sym=String(symbol||'').trim().toUpperCase();
   if(!sym) return null;
-  const mark=marks[sym];
-  const mp=Number(mark?.price);
-  if(Number.isFinite(mp) && mp>0){
-    return {price:mp, source:mark.source||'mark', asOf:mark.asOf||null};
-  }
+  const verified=freshMark(marks,sym);
+  if(verified) return {...verified.mark,price:verified.price};
   const u=(universe||[]).find(x=>String(x.symbol||'').toUpperCase()===sym);
-  const cur=Number(u?.current?.price);
-  if(Number.isFinite(cur) && cur>0){
-    return {price:cur, source:u.current.source||'universe', asOf:u.current.asOf||u.current.date||null};
-  }
-  const last=u?.series?.at?.(-1);
-  const lp=Number(last?.price);
-  if(Number.isFinite(lp) && lp>0){
-    return {price:lp, source:last.source||u.seriesSource||'research_series', asOf:last.asOf||last.date||null};
-  }
+  const current=u?.current;
+  const candidate=current?{...current,asOf:current.asOf||current.asof}:null;
+  const fresh=freshMark({[sym]:candidate},sym);
+  if(fresh) return {...fresh.mark,price:fresh.price};
   return null;
 }
 
@@ -73,7 +68,7 @@ export function scaleAllocation(allocation, budget){
 export function formatBuildSummaryText(result){
   if(!result?.ok) return 'Paper wallet build failed.';
   const lines=[
-    `Paper wallet build applied (simulation only).`,
+    result.dryRun?'Paper wallet preview only. Review and use Apply to Wallet in AI Mirror to confirm.':`Paper wallet build applied (simulation only).`,
     `Budget: ${result.budget}. Deposit added: ${result.deposited||0}.`,
     `Buys (${result.buys?.length||0}): ${(result.buys||[]).map(b=>`${b.symbol} qty ${b.quantity} @ ${b.unitPrice} (${b.priceSource})`).join('; ')||'none'}.`
   ];

@@ -1,3 +1,4 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import crypto from 'node:crypto';
 import { getEnv } from '../lib/env.mjs';
 import { getTraceStatus, saveTraceStatus } from '../lib/state.mjs';
@@ -26,7 +27,7 @@ function active(status){
   return status?.catchupRunning===true && Number.isFinite(started) && Date.now()-started<ACTIVE_TTL_MS;
 }
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const kind=await authKind(req); if(!kind) return;
   const body=await readJSON(req,{maxBytes:2048}).catch(()=>({}));
@@ -77,5 +78,5 @@ export default async (req,context)=>{
     if(now.catchupRunId===runId) await saveTraceStatus({...now,catchupRunning:false,catchupBatch:[],lastError:String(e.message||e)});
     await op.finish({status:'ERROR',error:e,mode:'catchup',batchSize:batch.length});
   }
-};
+});
 export const config={background:true};

@@ -50,8 +50,8 @@ function normalizeCatalog(rows=[]){
 
 function fallbackCatalog(){
   return [
-    {id:'crypto-btc',label:'Bitcoin',symbol:'BTC',displaySymbol:'BTC',vendorSymbol:'BTC/USD',kind:'Crypto',assetType:'crypto',quoteCurrency:'USD',description:'Bitcoin / USD digital-asset market pair.',exchanges:[]},
-    {id:'crypto-eth',label:'Ethereum',symbol:'ETH',displaySymbol:'ETH',vendorSymbol:'ETH/USD',kind:'Crypto',assetType:'crypto',quoteCurrency:'USD',description:'Ethereum / USD digital-asset market pair.',exchanges:[]}
+    {id:'crypto',label:'Bitcoin',symbol:'BTC',displaySymbol:'BTC',vendorSymbol:'BTC/USD',kind:'Crypto',assetType:'crypto',quoteCurrency:'USD',description:'Bitcoin / USD digital-asset market pair.',exchanges:[]},
+    {id:'ethereum',label:'Ethereum',symbol:'ETH',displaySymbol:'ETH',vendorSymbol:'ETH/USD',kind:'Crypto',assetType:'crypto',quoteCurrency:'USD',description:'Ethereum / USD digital-asset market pair.',exchanges:[]}
   ];
 }
 

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { getEnv } from './env.mjs';
-import { getSystemJSON,setSystemJSON,listSystemKeys,deleteSystemKey,withSystemKeyLock,configureTenantForRequest,purgeCurrentTenantData } from './store.mjs';
+import { getSystemJSON,setSystemJSON,listSystemKeys,deleteSystemKey,withSystemKeyLock,configureTenantForRequest,purgeCurrentTenantData,databaseTenantScope } from './store.mjs';
 import { purgeTenantRelationalData } from './database.mjs';
 import { getBillingState } from './commercial-control.mjs';
 import { cancelStripeSubscription } from './stripe-billing.mjs';
@@ -66,6 +66,7 @@ export async function purgeKairosTenantData({tenantId,jobId}={}){
   const users=await tenantUsers(tenantId);
   const content=await purgeCurrentTenantData();
   const relational=await purgeTenantRelationalData(tenantId);
+  await purgeTenantRelationalData(databaseTenantScope());
   let identityDeleted=0;
   for(const user of users){
     if(user.identityUserId){
@@ -97,7 +98,7 @@ export async function executeWorkspaceDeletion({tenantId,jobId}={}){
   const tenant=await getSystemJSON(tenantKey(tenantId),null);
   if(!tenant||tenant.status!=='deleting'||tenant.deletionJobId!==jobId) throw new Error('DELETION_JOB_NOT_ACTIVE');
   configureTenantForRequest({tenantId,userId:'system',role:'system'});
-  const billing=await getBillingState().catch(()=>null);
+  const billing=await getBillingState();
   const status=String(billing?.subscriptionStatus||'').toLowerCase();
   if(billing?.subscriptionId && !['canceled','cancelled','deleted','inactive'].includes(status)){
     try{ await cancelStripeSubscription({subscriptionId:billing.subscriptionId}); }

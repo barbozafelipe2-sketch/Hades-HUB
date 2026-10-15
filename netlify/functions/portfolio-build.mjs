@@ -1,10 +1,11 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { buildPaperWalletFromAllocation, formatBuildSummaryText } from '../lib/portfolio-build.mjs';
 import { configurePersistenceForRequest } from '../lib/store.mjs';
 import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
@@ -32,4 +33,4 @@ export default async (req,context)=>{
     const status=/BUDGET_REQUIRED|AI_MIRROR_REQUIRED|ALLOCATION_|UNKNOWN_INVESTMENT|NO_BUYS/.test(msg)?400:500;
     return json({ok:false,error:msg,message:msg},status);
   }
-};
+});

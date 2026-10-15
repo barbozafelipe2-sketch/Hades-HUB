@@ -1,3 +1,5 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
+import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 import crypto from 'node:crypto';
 import { requireSession, requireRole } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
@@ -30,7 +32,7 @@ function valueSize(v){ try{return Buffer.byteLength(JSON.stringify(v));}catch{re
 function finitePositive(v,max=1e12){ const n=Number(v); return Number.isFinite(n)&&n>0&&n<=max?n:null; }
 function safeDateTime(v,{required=false}={}){ if(v==null||v===''){ if(required) throw new Error('INVALID_TIMESTAMP'); return null; } const s=String(v); if(!Number.isFinite(Date.parse(s))) throw new Error('INVALID_TIMESTAMP'); return s; }
 function boundedObject(v,name,maxBytes=512000){ if(!obj(v)) throw new Error(`INVALID_${name}`); if(valueSize(v)>maxBytes) throw new Error(`${name}_TOO_LARGE`); return structuredClone(v); }
-function safeDecision(d){ if(!obj(d)||!SAFE_ID.test(String(d.id||''))) throw new Error('INVALID_DECISION'); if(valueSize(d)>512000) throw new Error('DECISION_TOO_LARGE'); return structuredClone(d); }
+function safeDecision(d){ if(!obj(d)||!SAFE_ID.test(String(d.id||''))) throw new Error('INVALID_DECISION'); if(valueSize(d)>512000) throw new Error('DECISION_TOO_LARGE'); const copy=structuredClone(d);if(copy.createdAt)copy.createdAt=safeDateTime(copy.createdAt);return copy; }
 function safeWorldState(v){
   if(!obj(v)||!DATE.test(String(v.date||''))) throw new Error('INVALID_WORLD_STATE');
   if(valueSize(v)>1000000) throw new Error('WORLD_STATE_TOO_LARGE');
@@ -74,7 +76,7 @@ function safePrefixMap(values,group,{maxEntries=2000,maxValueBytes=1000000}={}){
   return out;
 }
 
-export function normalizeBackupPayload(b={}){
+export function normalizeBackupPayload(b={}, {trusted=false}={}){
   if(!obj(b)||![2,3,4,5].includes(Number(b.version))) throw new Error('BACKUP_VERSION_UNSUPPORTED');
   const transactions=validateTransactionLedger(Array.isArray(b.transactions)?b.transactions:[]); if(transactions.length>10000) throw new Error('TOO_MANY_TRANSACTIONS');
   const ids=new Set(); for(const t of transactions){ if(ids.has(t.id)) throw new Error('DUPLICATE_TRANSACTION_ID'); ids.add(t.id); }
@@ -96,19 +98,35 @@ export function normalizeBackupPayload(b={}){
   }):[];
   if(decisionResponses.length>10000)throw new Error('TOO_MANY_DECISION_RESPONSES');
   const responseIds=new Set(),responseKeys=new Set();for(const r of decisionResponses){if(responseIds.has(r.id)||responseKeys.has(r.idempotencyKey))throw new Error('DUPLICATE_DECISION_RESPONSE');responseIds.add(r.id);responseKeys.add(r.idempotencyKey);}
+  if(!trusted){
+    for(const m of Object.values(marks)){m.manual=true;m.license_id='unverified';m.point_in_time=false;}
+    for(const d of decisions){d.imported=true;d.final={...(d.final||{}),audit_status:'IMPORTED_UNVERIFIED'};d.outcomes=(d.outcomes||[]).map(o=>({...o,pointInTime:false}));}
+  }
   const worldState=b.worldState?safeWorldState(b.worldState):null;
+  const quarantineWorld=ws=>{
+    if(!ws)return ws;
+    return {...ws,_meta:{...(ws._meta||{}),price_provenance:{},point_in_time:false,imported:true},instruments:(ws.instruments||[]).map(i=>({...i,license_id:'unverified',manual:true,stale:true,point_in_time:false}))};
+  };
+  const snapshots=safePrefixMap(b.snapshots,'snapshots');
+  const worldStates=safePrefixMap(b.worldStates,'worldStates');
+  if(!trusted){
+    for(const t of transactions){t.point_in_time=false;t.license_id='unverified';t.imported=true;}
+    for(const o of paperOrders){o.importedStatus=o.status;o.status='CANCELLED';o.imported=true;o.marketEvidence={source:'imported',license_id:'unverified',point_in_time:false};}
+    for(const [key,v] of Object.entries(snapshots))snapshots[key]={...v,completeMarks:false,markIntegrity:'imported_unverified'};
+    for(const [key,v] of Object.entries(worldStates))worldStates[key]=quarantineWorld(v);
+  }
   return {
     version:5,
     exportedAt:safeDateTime(b.exportedAt)||new Date().toISOString(),
     profile:sanitizeProfile(b.profile||{}), settings:sanitizeSettings(b.settings||{}),
     transactions,marks,paperOrders,watchlist:normalizeSymbolList(Array.isArray(b.watchlist)?b.watchlist:[],{max:100}),
-    worldState,traceStatus:b.traceStatus?boundedObject(b.traceStatus,'TRACE_STATUS',128000):null,
+    worldState:trusted?worldState:quarantineWorld(worldState),traceStatus:b.traceStatus?boundedObject(b.traceStatus,'TRACE_STATUS',128000):null,
     decisions,decisionResponses,
-    snapshots:safePrefixMap(b.snapshots,'snapshots'),traces:safePrefixMap(b.traces,'traces'),worldStates:safePrefixMap(b.worldStates,'worldStates'),
-    aiMirror:b.aiMirror?boundedObject(b.aiMirror,'AI_MIRROR',512000):null,
-    aiMirrorHistory:Array.isArray(b.aiMirrorHistory)?b.aiMirrorHistory.slice(-250).map(v=>boundedObject(v,'AI_MIRROR_HISTORY_ITEM',512000)):[],
+    snapshots,traces:safePrefixMap(b.traces,'traces'),worldStates,
+    aiMirror:b.aiMirror?{...boundedObject(b.aiMirror,'AI_MIRROR',512000),...(!trusted?{status:'IMPORTED_UNVERIFIED'}:{})}:null,
+    aiMirrorHistory:Array.isArray(b.aiMirrorHistory)?b.aiMirrorHistory.slice(-250).map(v=>({...boundedObject(v,'AI_MIRROR_HISTORY_ITEM',512000),...(!trusted?{status:'IMPORTED_UNVERIFIED'}:{})})):[],
     walletMirror:b.walletMirror?boundedObject(b.walletMirror,'WALLET_MIRROR',512000):null,
-    evolution:b.evolution?boundedObject(b.evolution,'EVOLUTION',1000000):null
+    evolution:trusted&&b.evolution?boundedObject(b.evolution,'EVOLUTION',1000000):null
   };
 }
 
@@ -135,25 +153,40 @@ async function applyNormalizedBackup(b,tenantId){
   if(b.worldState){ await setJSON('trace/world-state/latest',b.worldState); await setJSON(`trace/world-state/${b.worldState.date}`,b.worldState); }
 }
 
-export default async (req,context)=>{
+// Server-created recovery snapshots retain their original evidence status.
+export async function recoverInterruptedRestore(tenantId){
+  const active=await getJSON('restore/active',null);if(!active)return;
+  const status=await getJSON(active.statusKey,null);
+  if(status?.status==='COMPLETE'){await deleteKey('restore/active');return;}
+  const snapshot=await getJSON(active.snapshotKey,null);
+  if(!snapshot?.recoverySnapshot)throw new Error('WORKSPACE_RECOVERY_REQUIRED');
+  await applyNormalizedBackup(normalizeBackupPayload(snapshot,{trusted:true}),tenantId);
+  await setJSON(active.statusKey,{...(status||{}),status:'RECOVERED',finishedAt:new Date().toISOString(),rollbackSucceeded:true});
+  await deleteKey('restore/active');
+}
+
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req);
   if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method==='GET') return json(await captureBackup(session.tenantId));
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
+  try{await assertCommercialAccess(session);}catch(e){const ce=commercialErrorJSON(e);if(ce)return json(ce.body,ce.status);throw e;}
   try{ requireRole(session,['owner','admin']); }catch{ return json({error:'FORBIDDEN'},403); }
   let raw; try{ raw=await readJSON(req,{maxBytes:MAX_RESTORE_BYTES}); }catch(e){ return json({error:String(e.message||e)},413); }
   let incoming; try{ incoming=normalizeBackupPayload(raw); }catch(e){ return json({error:String(e.message||e)},400); }
-  return await withKeyLock('backup-restore',async()=>{
+  return await withKeyLock('portfolio-ledger',async()=>{
     const restoreId=crypto.randomUUID(); const snapshotKey=`restore/snapshots/${restoreId}`; const stagingKey=`restore/staging/${restoreId}`; const statusKey=`restore/status/${restoreId}`;
     let previous;
     try{
-      previous=normalizeBackupPayload(await captureBackup(session.tenantId));
+      previous=normalizeBackupPayload(await captureBackup(session.tenantId),{trusted:true});
       await setJSON(snapshotKey,{...previous,recoverySnapshot:true,restoreId});
       await setJSON(stagingKey,{...incoming,restoreId,stagedAt:new Date().toISOString()});
       await setJSON(statusKey,{restoreId,status:'APPLYING',startedAt:new Date().toISOString(),snapshotKey});
+      await setJSON('restore/active',{restoreId,snapshotKey,statusKey});
       await applyNormalizedBackup(incoming,session.tenantId);
       await setJSON(statusKey,{restoreId,status:'COMPLETE',startedAt:(await getJSON(statusKey,{}))?.startedAt||null,finishedAt:new Date().toISOString(),snapshotKey});
+      await deleteKey('restore/active');
       await deleteKey(stagingKey).catch(()=>{});
       await pruneJSONCollection('restore/snapshots/',{maxEntries:5,minIntervalMs:0,timestampFields:['exportedAt']}).catch(()=>{});
       await pruneJSONCollection('restore/status/',{maxEntries:20,minIntervalMs:0,timestampFields:['finishedAt','startedAt']}).catch(()=>{});
@@ -163,8 +196,9 @@ export default async (req,context)=>{
       let rollbackSucceeded=false; let rollbackError=null;
       if(previous){ try{ await applyNormalizedBackup(previous,session.tenantId); rollbackSucceeded=true; }catch(rb){ rollbackError=String(rb?.message||rb); } }
       try{ await setJSON(statusKey,{restoreId,status:'FAILED',finishedAt:new Date().toISOString(),error:String(e?.message||e),rollbackSucceeded,rollbackError,snapshotKey}); }catch{}
+      if(rollbackSucceeded)await deleteKey('restore/active').catch(()=>{});
       await auditCommercialEvent(session,'backup.restore_failed',{requestId:context?.requestId,details:{action:'restore',result:rollbackSucceeded?'rolled_back':'failed'}}).catch(()=>{});
       return json({error:'BACKUP_RESTORE_FAILED',detail:String(e?.message||e),restoreId,rollbackSucceeded,rollbackError,recoverySnapshotKey:previous?snapshotKey:null},500);
     }
   },{ttlMs:120000,waitMs:10000});
-};
+});

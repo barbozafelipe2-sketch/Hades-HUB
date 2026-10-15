@@ -1,3 +1,4 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { getJSON } from '../lib/store.mjs';
@@ -6,9 +7,9 @@ import { getPaperOrders } from '../lib/state.mjs';
 import { recordDecisionResponse } from '../lib/database.mjs';
 import { normalizeJobId, declaredBodyTooLarge } from '../lib/input.mjs';
 
-const ALLOWED_RESPONSES=new Set(['followed','adapted','no_action']);
+const ALLOWED_RESPONSES=new Set(['followed','overrode','no_action']);
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req);if(!session)return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST')return json({error:'METHOD_NOT_ALLOWED'},405);
@@ -20,7 +21,7 @@ export default async (req,context)=>{
     idempotencyKey=normalizeJobId(body.idempotencyKey);
     if(body.paperOrderId)paperOrderId=normalizeJobId(body.paperOrderId);
   }catch(e){return json({error:String(e.message||'INVALID_ID')},400);}
-  const response=String(body.response||'');if(!ALLOWED_RESPONSES.has(response))return json({error:'INVALID_DECISION_RESPONSE'},400);
+  const response=body.response==='adapted'?'overrode':String(body.response||'');if(!ALLOWED_RESPONSES.has(response))return json({error:'INVALID_DECISION_RESPONSE'},400);
   const decision=await getJSON(`decisions/${decisionId}`,null);
   if(!decision||String(decision.id)!==decisionId)return json({error:'DECISION_NOT_FOUND'},404);
   if(paperOrderId){
@@ -36,4 +37,4 @@ export default async (req,context)=>{
     const status=code==='DECISION_RESPONSE_REFERENCE_INVALID'||code==='IDEMPOTENCY_KEY_REUSED'?409:500;
     return json({error:code},status);
   }
-};
+});

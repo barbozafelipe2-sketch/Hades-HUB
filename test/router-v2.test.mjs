@@ -122,7 +122,7 @@ function clean(v){ return String(v||'').trim(); }
   assert.equal(detectBuildWalletIntent('build my wallet with $5000'), true);
   assert.equal(detectBuildWalletIntent('what is my Sharpe ratio?'), false);
   assert.equal(extractBudgetFromMessage('construct portfolio with $10,000'), 10000);
-  assert.equal(resolveKnownPrice('QQQ',{marks:{QQQ:{price:400,source:'manual'}}}).price, 400);
+  assert.equal(resolveKnownPrice('QQQ',{marks:{QQQ:{price:400,source:'manual'}}}), null);
   const scaled=scaleAllocation([{symbol:'QQQ',weight_pct:60},{symbol:'BIL',weight_pct:40}],1000);
   assert.ok(Math.abs(scaled.reduce((s,r)=>s+r.weight_pct,0)-100)<0.05);
   assert.ok(fs.existsSync(path.join(root,'netlify/functions/portfolio-build.mjs')));

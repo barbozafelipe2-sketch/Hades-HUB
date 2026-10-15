@@ -1,3 +1,4 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { getTransactions, saveTransactions, getMarks, saveMarks, getPortfolio, getPaperOrders, getWatchlist, saveWatchlist } from '../lib/state.mjs';
@@ -5,7 +6,7 @@ import { normalizeTransaction, derivePortfolio, normalizeSymbol } from '../lib/p
 import { withKeyLock, configurePersistenceForRequest } from '../lib/store.mjs';
 import { assertCommercialAccess, commercialErrorJSON, auditCommercialEvent } from '../lib/commercial-control.mjs';
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method==='GET') {
@@ -92,4 +93,4 @@ export default async (req,context)=>{
     const status=/ORDER_NOT_FOUND/.test(message)?404:/ORDER_NOT_OPEN|FRESH_MARK_REQUIRED|INSUFFICIENT_|SELL_EXCEEDS_POSITION|PERSISTENCE_LOCK_TIMEOUT/.test(message)?409:400;
     return json({error:message,message},status);
   }
-};
+});

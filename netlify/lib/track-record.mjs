@@ -1,3 +1,4 @@
+import { eligibleOutcome, latestEligibleOutcome } from './outcome-eligibility.mjs';
 import crypto from 'node:crypto';
 import { performanceFromSnapshots, OUTCOME_CHECKPOINT_DAYS } from './portfolio.mjs';
 
@@ -67,10 +68,12 @@ function decisionMetrics(rows=[]){
   const pointInTime=allOutcomes.filter(o=>o.pointInTime===true&&o.returnSinceDecision!=null);
   const maturedIds=new Set();
   for(const d of rows){
-    if(ACTIONABLE_STATUSES.has(d.status) && d.outcomes.some(o=>o.pointInTime===true&&o.returnSinceDecision!=null&&o.checkpointDays>=7)) maturedIds.add(d.id);
+    if(ACTIONABLE_STATUSES.has(d.status) && d.outcomes.some(o=>eligibleOutcome(o))) maturedIds.add(d.id);
   }
+  const calibration=rows.filter(d=>ACTIONABLE_STATUSES.has(d.status)).map(d=>latestEligibleOutcome(d.outcomes)).filter(Boolean);
   return {
     totalDecisions:rows.length,
+    calibration:{eligible:calibration.length,hitRate:calibration.length?calibration.filter(o=>o.directionalCorrect).length/calibration.length:null},
     actionableDecisions:rows.filter(d=>ACTIONABLE_STATUSES.has(d.status)).length,
     noActionObservations:rows.filter(d=>NO_ACTION_STATUSES.has(d.status)).length,
     maturedActionableDecisions:maturedIds.size,

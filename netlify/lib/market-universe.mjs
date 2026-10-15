@@ -87,7 +87,7 @@ export async function buildUniverseView(){
     const first=series[0]?.price, last=series.at(-1)?.price;
     let periodReturn=Number.isFinite(first)&&first>0&&Number.isFinite(last)&&series.length>=2?last/first-1:null;
     // Day change from quote when multi-day history still thin
-    const dayChange=Number.isFinite(Number(inst?.percent_change))?Number(inst.percent_change)/100:null;
+    const dayChange=inst?.percent_change!=null && Number.isFinite(Number(inst.percent_change))?Number(inst.percent_change)/100:null;
     if(periodReturn==null && dayChange!=null) periodReturn=dayChange;
     return {
       ...def,
@@ -138,5 +138,5 @@ export async function buildDynamicAssetView(def,{persistMark=true}={}){
       await saveMarks(marks);
     });
   }
-  return {...def,current:{date:d,price:q.price,asOf:q.asof||q.asOf,source:q.source||q.provider||null,exchange:q.exchange||null,delay_class:q.delay_class||'unknown',license_id:q.license_id||null,point_in_time:q.point_in_time===true,confidence:q.stale?'moderate':'high'},series:merged,periodReturn,dayChange:Number.isFinite(Number(q.percentChange))?Number(q.percentChange)/100:null,historyReady:merged.length>=2,seriesSource:seriesResult.provider||'quote_only',researchMeta:{grade:'licensed_market_data',provider:seriesResult.provider||q.provider||null,generatedAt:new Date().toISOString(),disclaimer:'Crypto price/history supplied by licensed market-data providers; coverage depends on provider entitlement.'}};
+  return {...def,current:{date:d,price:q.price,asOf:q.asof||q.asOf,source:q.source||q.provider||null,exchange:q.exchange||null,delay_class:q.delay_class||'unknown',license_id:q.license_id||null,point_in_time:q.point_in_time===true,confidence:q.stale?'moderate':'high'},series:merged,periodReturn,dayChange:q.percentChange!=null && Number.isFinite(Number(q.percentChange))?Number(q.percentChange)/100:null,historyReady:merged.length>=2,seriesSource:seriesResult.provider||'quote_only',researchMeta:{grade:'licensed_market_data',provider:seriesResult.provider||q.provider||null,generatedAt:new Date().toISOString(),disclaimer:'Crypto price/history supplied by licensed market-data providers; coverage depends on provider entitlement.'}};
 }

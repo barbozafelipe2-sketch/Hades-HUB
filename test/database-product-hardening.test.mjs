@@ -10,6 +10,7 @@ try{
   await client.query(sql);
   const responsesSql=await fs.readFile(new URL('../netlify/database/migrations/20261001000400_kairos-decision-responses/migration.sql',import.meta.url),'utf8');
   await client.query(responsesSql);
+  await client.query('TRUNCATE usage_ledger,market_snapshots');
   await client.query('TRUNCATE decision_responses, decision_outcomes, decisions CASCADE');
   await client.query('TRUNCATE paper_transactions, paper_orders, paper_accounts CASCADE');
   await client.query("INSERT INTO paper_accounts(id,tenant_id) VALUES ('acct-a','tenant_a'),('acct-b','tenant_b')");

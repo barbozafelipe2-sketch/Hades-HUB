@@ -1,9 +1,10 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { readJSON } from '../lib/http.mjs';
 import { validInternal } from '../lib/internal.mjs';
 import { configurePersistenceForRequest,setSystemJSON,getSystemJSON } from '../lib/store.mjs';
 import { executeWorkspaceDeletion } from '../lib/data-lifecycle.mjs';
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   if(!validInternal(req)) return;
   const body=await readJSON(req,{maxBytes:2048}).catch(()=>({}));
@@ -18,5 +19,5 @@ export default async (req,context)=>{
     const prior=await getSystemJSON(key,null).catch(()=>null);
     if(prior) await setSystemJSON(key,{...prior,status:'FAILED',failedAt:new Date().toISOString(),error:String(e?.message||e).slice(0,180)}).catch(()=>{});
   }
-};
+});
 export const config={background:true};

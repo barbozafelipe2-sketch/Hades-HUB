@@ -27,7 +27,7 @@ export function sanitizeProfile(input={}){
     name:text(p.name,DEFAULT_PROFILE.name,80),
     email:text(p.email,'',120),
     country:text(p.country,DEFAULT_PROFILE.country,80),
-    baseCurrency:pick(String(p.baseCurrency||'USD').toUpperCase(),['USD','EUR','BRL','GBP'],DEFAULT_PROFILE.baseCurrency),
+    baseCurrency:'USD',
     goal:text(p.goal,DEFAULT_PROFILE.goal,80),
     targetAmount:boundedNumber(p.targetAmount,{min:0,max:100000000, fallback:DEFAULT_PROFILE.targetAmount}),
     horizon:pick(p.horizon,['<1y','1-3y','3-10y','10y+'],DEFAULT_PROFILE.horizon),

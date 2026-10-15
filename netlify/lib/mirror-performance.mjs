@@ -1,7 +1,7 @@
 import { getSnapshots, getMarketHistory, getAIMirrorHistory } from './state.mjs';
 import { INVESTMENT_UNIVERSE } from './market-universe.mjs';
 
-function finite(v){ const n=Number(v); return Number.isFinite(n)?n:null; }
+function finite(v){ if(v==null||v==='')return null; const n=Number(v); return Number.isFinite(n)?n:null; }
 function isoDate(v){ return String(v||'').slice(0,10); }
 function instrumentPrice(ws,symbol){
   // Use the actual instrument series for ETFs/securities. Never substitute an index level
@@ -34,29 +34,30 @@ function userSeries(snaps=[]){
   return {ready:true,series:out,totalReturn:growth-1};
 }
 function benchmarkSeries(history=[]){
-  const pts=history.map(ws=>({date:ws.date,value:instrumentPrice(ws,'SPY') ?? finite(ws?.benchmarks?.spy_price) ?? finite(ws?.benchmarks?.sp500_level)})).filter(x=>x.value!=null&&x.value>0);
+  const pts=history.map(ws=>({date:ws.date,value:instrumentPrice(ws,'SPY') ?? finite(ws?.benchmarks?.spy_price)})).filter(x=>x.value!=null&&x.value>0);
   const norm=normalizeIndex(pts); return {ready:norm.length>=2,series:norm,totalReturn:norm.length>=2?norm.at(-1).value/100-1:null};
 }
 function activeRun(runs,date){
-  const eligible=runs.filter(r=>isoDate(r.generatedAt)<=date && r.status==='APPROVED');
+  const eligible=runs.filter(r=>Date.parse(r.generatedAt)<=Date.parse(`${date}T00:00:00Z`) && r.status==='APPROVED');
   return eligible.length?eligible.at(-1):null;
 }
 function aiSeries(history=[],runs=[]){
   const approved=[...runs].filter(r=>r?.status==='APPROVED'&&Array.isArray(r.allocation)&&r.allocation.length).sort((a,b)=>String(a.generatedAt).localeCompare(String(b.generatedAt)));
   if(!approved.length) return {ready:false,reason:'Run AI Mirror once to create the comparison baseline.',series:[]};
   const start=isoDate(approved[0].generatedAt);
-  const hs=[...history].filter(ws=>String(ws.date)>=start).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const hs=[...history].filter(ws=>String(ws.date)>start).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
   if(hs.length<2) return {ready:false,reason:'Need at least two recorded market states after the first AI Mirror.',series:[]};
   let index=100; const out=[{date:hs[0].date,value:index,coverage:1}];
   for(let i=1;i<hs.length;i++){
-    const prev=hs[i-1], cur=hs[i]; const run=activeRun(approved,prev.date)||approved[0];
+    const prev=hs[i-1], cur=hs[i]; const run=activeRun(approved,prev.date);
+    if(!run)return {ready:false,reason:'Allocation was not available before the measurement interval.',series:[]};
     let weighted=0, covered=0;
     for(const row of run.allocation||[]){
       const w=Math.max(0,Number(row.weight_pct||0))/100; if(!w) continue;
       const p0=instrumentPrice(prev,row.symbol), p1=instrumentPrice(cur,row.symbol);
       if(p0!=null&&p0>0&&p1!=null&&p1>0){ weighted+=w*(p1/p0-1); covered+=w; }
     }
-    if(covered<0.60){ out.push({date:cur.date,value:index,coverage:covered}); continue; }
+    if(covered<0.9999)return {ready:false,reason:`Incomplete allocation price coverage on ${cur.date}.`,series:[]};
     index*=1+weighted; out.push({date:cur.date,value:index,coverage:covered});
   }
   return {ready:out.length>=2,series:out,totalReturn:out.length>=2?out.at(-1).value/100-1:null,simulationNote:'AI Mirror return is a paper simulation from recorded market states. It excludes taxes, spreads, fees and slippage.'};
@@ -66,7 +67,15 @@ function latestValue(series=[]){ return series.length?Number(series.at(-1).value
 export async function buildPerformanceMirror(){
   const [snaps,history,runs]=await Promise.all([getSnapshots(),getMarketHistory(730),getAIMirrorHistory()]);
   const user=userSeries(snaps), ai=aiSeries(history,runs), benchmark=benchmarkSeries(history);
-  const userVal=latestValue(user.series), aiVal=latestValue(ai.series), benchVal=latestValue(benchmark.series);
-  const leader=[['YOU',userVal],['KAIROS',aiVal],['SPY',benchVal]].filter(([,v])=>v!=null).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
-  return {generatedAt:new Date().toISOString(),user,ai,benchmark,leader,legend:{user:'YOUR WALLET',ai:'KAIROS AI MIRROR',benchmark:'SPY'},method:'normalized_return_index_100'};
+  const available=[user,ai,benchmark].filter(s=>s.ready&&s.series.length>=2);
+  let period=null;
+  if(available.length>=2){
+    const dates=available[0].series.map(p=>p.date).filter(d=>available.every(s=>s.series.some(p=>p.date===d)));
+    if(dates.length>=2){
+      period={startDate:dates[0],endDate:dates.at(-1)};
+      for(const s of available){s.series=normalizeIndex(s.series.filter(p=>dates.includes(p.date)));s.totalReturn=s.series.at(-1).value/100-1;}
+    }
+  }
+  const leader=period?[['YOU',user],['KAIROS',ai],['SPY',benchmark]].filter(([,s])=>available.includes(s)).sort((a,b)=>b[1].totalReturn-a[1].totalReturn)[0]?.[0]||null:null;
+  return {generatedAt:new Date().toISOString(),user,ai,benchmark,leader,period,legend:{user:'YOUR WALLET',ai:'KAIROS AI MIRROR',benchmark:'SPY'},method:'normalized_return_index_100'};
 }

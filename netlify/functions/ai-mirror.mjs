@@ -1,3 +1,4 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { getProfile,getPortfolio,getWorldState,modelSafeProfile,saveAIMirror } from '../lib/state.mjs';
@@ -37,7 +38,7 @@ function mapMirrorError(e){
   return {error:m, http:500};
 }
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
@@ -138,5 +139,5 @@ export default async (req,context)=>{
     await op.finish({status:'ERROR',error:e,jobId:job});
     return;
   }
-};
+});
 export const config={background:true};

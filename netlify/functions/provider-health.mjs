@@ -10,6 +10,7 @@ import {
   documentedFallbackChains,
   providerCredentialMode
 } from '../lib/llm.mjs';
+import { licensedMarketHealth } from '../lib/market-truth.mjs';
 import { twelveHealth } from '../lib/twelve-data.mjs';
 import { finnhubHealth } from '../lib/finnhub.mjs';
 import { securityStatus } from '../lib/security-status.mjs';
@@ -73,17 +74,17 @@ export default async (req,context)=>{
   const url=new URL(req.url);
   const resilienceTest=body.failoverTest===true || body.resilienceTest===true || url.searchParams.get('failoverTest')==='true' || url.searchParams.get('resilienceTest')==='true';
 
-  const [openai,anthropic,gemini,twelve,finnhub]=await Promise.all([
-    pingProvider('openai'),pingProvider('anthropic'),pingProvider('gemini'),twelveHealth(),finnhubHealth()
+  const [openai,anthropic,gemini,twelve,finnhub,licensed]=await Promise.all([
+    pingProvider('openai'),pingProvider('anthropic'),pingProvider('gemini'),twelveHealth(),finnhubHealth(),licensedMarketHealth()
   ]);
-  const providers={openai,anthropic,gemini,twelve,finnhub};
+  const providers={openai,anthropic,gemini,twelve,finnhub,licensed};
   const aiProviders=[openai,anthropic,gemini];
   const summary={
     gatewayDetected:gatewayConfigured(),
     aiConfigured:aiProviders.filter(p=>p.keyDetected).length,
     aiVerified:aiProviders.filter(p=>p.requestOk===true).length,
-    marketConfigured:[twelve,finnhub].filter(p=>p.keyDetected).length,
-    marketVerified:[twelve,finnhub].filter(p=>p.requestOk===true).length,
+    marketConfigured:[licensed,twelve,finnhub].filter(p=>p.keyDetected).length,
+    marketVerified:[licensed,twelve,finnhub].filter(p=>p.requestOk===true).length,
     failed:Object.values(providers).filter(p=>p.keyDetected && p.requestOk!==true).length
   };
   const security=securityStatus();

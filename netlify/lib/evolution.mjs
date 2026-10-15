@@ -1,3 +1,4 @@
+import { latestEligibleOutcome } from './outcome-eligibility.mjs';
 import { getDecisions,getEvolutionState,saveEvolutionState } from './state.mjs';
 import { runGuardedJSONTask, publicGateMeta } from './ai-gate.mjs';
 
@@ -23,8 +24,7 @@ export function normalizeStrategy(s={}){
   };
 }
 function latestScoredOutcome(d){
-  const rows=(d?.outcomes||[]).filter(o=>typeof o?.directionalCorrect==='boolean').sort((a,b)=>Number(a.checkpointDays||0)-Number(b.checkpointDays||0));
-  return rows.at(-1)||null;
+  return latestEligibleOutcome(d?.outcomes||[]);
 }
 function decisionTime(d){
   const t=Date.parse(d?.createdAt||d?.date||0);
@@ -62,7 +62,7 @@ export function evaluateStrategy(decisions,strategy){
   const score=hitRate-(1-coverage)*0.15;
   return {sample:scored.length,eligible:eligible.length,correct,hitRate,coverage,score};
 }
-/** Time-ordered scored ADD/REDUCE decisions: earlier = holdout, recent = inspire (≈70/30). */
+/** Time-ordered scored ADD/REDUCE decisions: earlier = inspire, later = holdout (≈70/30). */
 export function splitScoredHoldout(decisions,{inspireShare=0.3}={}){
   const scored=decisions
     .map(d=>({d,o:latestScoredOutcome(d)}))
@@ -73,9 +73,8 @@ export function splitScoredHoldout(decisions,{inspireShare=0.3}={}){
   let inspireN=Math.max(1,Math.round(n*inspireShare));
   if(inspireN>=n) inspireN=Math.max(1,n-1); // keep at least one holdout when n>=2
   if(n===1) inspireN=1; // tiny sample: inspire only; holdout empty until more data
-  const cut=n-inspireN;
-  const holdout=scored.slice(0,Math.max(0,cut)).map(x=>x.d);
-  const inspire=scored.slice(Math.max(0,cut)).map(x=>x.d);
+  const inspire=scored.slice(0,inspireN).map(x=>x.d);
+  const holdout=scored.slice(inspireN).map(x=>x.d);
   return {all:scored.map(x=>x.d),inspire,holdout,maturedCount:n,inspireCount:inspire.length,holdoutCount:holdout.length};
 }
 export function diagnoseDecisions(decisions){
@@ -116,7 +115,7 @@ export async function runEvolutionCycle({allowPromote=false,totalBudgetMs=90000,
     await saveEvolutionState(evo); return {...evo,cycleStatus:'INSUFFICIENT_DATA'};
   }
   const task='Propose one conservative challenger policy for KAIROS Decision Review based on measured decision outcomes. The challenger may only modify the supplied bounded policy fields. It must not add new capabilities, bypass audits, or loosen evidence requirements without justification.';
-  const prompt=`${task}\nReturn ONLY JSON:{"name":"...","hypothesis":"...","policy":{"minConfidence":"LOW|MODERATE|HIGH","blockLowSourceQuality":true|false,"requireAllAttacksPass":true,"maxSingleAssetPctForAdd":number,"preferAbstainWhenUnknowns":integer,"description":"..."},"expected_tradeoff":"..."}.\nCURRENT_CHAMPION:${JSON.stringify(championPolicy)}\nCHAMPION_HOLDOUT_METRICS:${JSON.stringify(championHoldout)}\nCHAMPION_INSPIRE_METRICS:${JSON.stringify(championInspire)}\nDIAGNOSIS_FROM_RECENT_INSPIRE_SLICE:${JSON.stringify(diagnosis)}\nNOTE: Promote eligibility is judged on the earlier HOLDOUT slice, not the inspire set.`;
+  const prompt=`${task}\nReturn ONLY JSON:{"name":"...","hypothesis":"...","policy":{"minConfidence":"LOW|MODERATE|HIGH","blockLowSourceQuality":true|false,"requireAllAttacksPass":true,"maxSingleAssetPctForAdd":number,"preferAbstainWhenUnknowns":integer,"description":"..."},"expected_tradeoff":"..."}.\nCURRENT_CHAMPION:${JSON.stringify(championPolicy)}\nCHAMPION_INSPIRE_METRICS:${JSON.stringify(championInspire)}\nDIAGNOSIS_FROM_TRAINING_SLICE:${JSON.stringify(diagnosis)}\nNOTE: Promote eligibility is judged on the later HOLDOUT slice, not the inspire set.`;
   const result=await runGuardedJSONTask({task,prompt,role:'learning_lab',criteria:'Challenger is conservative, bounded to policy fields, never disables attack checks, and is justified by measured failures.',validate:validateChallenger,totalBudgetMs,deadlineAt,maxRedo:1,timeoutTag:'EVOLUTION_TIMEOUT'});
   const gate=publicGateMeta(result);
   if(!result?.approved){

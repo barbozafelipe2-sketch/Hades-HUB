@@ -1,10 +1,11 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { requireSession, updateCredentials, publicAuthState, clearSessionCookie } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { getProfile, saveProfile, getSettings, saveSettings } from '../lib/state.mjs';
 import { configurePersistenceForRequest } from '../lib/store.mjs';
 import { auditCommercialEvent } from '../lib/commercial-control.mjs';
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req);
   if(!session) return json({error:'UNAUTHORIZED'},401);
@@ -21,4 +22,4 @@ export default async (req,context)=>{
     }catch(e){ return json({ok:false,error:e.message},400); }
   }
   return json({error:'UNKNOWN_ACTION'},400);
-};
+});

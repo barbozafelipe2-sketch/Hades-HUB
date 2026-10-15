@@ -1,3 +1,4 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { getEnv } from '../lib/env.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json } from '../lib/http.mjs';
@@ -11,7 +12,7 @@ import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-c
 /** Global wall so multi-symbol refresh cannot run past Netlify ~60s kill. */
 const WALL_MS=Math.max(30000,Math.min(55000,Number(getEnv('HADES_MARKET_REFRESH_WALL_MS',48000))));
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
@@ -56,5 +57,5 @@ export default async (req,context)=>{
       partial:!!researchError
     });
   }catch(e){ const msg=String(e.message||e); await op.finish({status:'ERROR',error:e}); return /MARKET_REFRESH_WALL/i.test(msg)?json({ok:false,error:'MARKET_REFRESH_WALL',wallMs:WALL_MS},504):json({ok:false,error:msg},500); }
-};
+});
 

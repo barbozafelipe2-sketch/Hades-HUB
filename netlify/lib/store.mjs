@@ -102,7 +102,7 @@ export function configureTenantForRequest(tenant){
 export function currentTenantContext(){ const t=activeContext()?.tenant; return t?{...t}:null; }
 export function databaseTenantScope(){ return scopedTenantId(tenantIdRequired()); }
 export function relationalPaperLedgerEnabled(){ return dataBackend()==='postgres'; }
-export async function ensureLegacyPaperLedger(){ const t=currentTenantContext();if(t?.role==='owner'&&relationalPaperLedgerEnabled())return migrateLegacyPaperLedger(databaseTenantScope());return {skipped:true}; }
+export async function ensureLegacyPaperLedger(){ const t=currentTenantContext();if(t?.role==='owner'&&relationalPaperLedgerEnabled())return migrateLegacyPaperLedger(databaseTenantScope(),Object.fromEntries(await Promise.all(['portfolio/transactions','portfolio/marks','broker/orders'].map(async key=>[key,await readJSON(key,null,{system:false})]))));return {skipped:true}; }
 export async function getRelationalTransactions(){ return getPaperTransactions(databaseTenantScope()); }
 export async function saveRelationalTransactions(rows){ return replacePaperTransactions(databaseTenantScope(),rows); }
 export async function getRelationalMarks(){ return getPaperMarks(databaseTenantScope()); }

@@ -1,3 +1,4 @@
+import { freshMark } from './market-authority.mjs';
 import crypto from 'node:crypto';
 import { getPaperOrders, savePaperOrders, getTransactions, saveTransactions, getMarks } from './state.mjs';
 import { normalizeSymbol, normalizeTransaction, derivePortfolio, isStaleMark } from './portfolio.mjs';
@@ -5,18 +6,8 @@ import { withKeyLock } from './store.mjs';
 
 const ORDER_TYPES=new Set(['LIMIT','STOP','STOP_LIMIT']);
 const SIDES=new Set(['BUY','SELL']);
-const VERIFIED_MARK_SOURCES=new Set(['twelve_data','finnhub','licensed_market_feed','twelve_data+finnhub_sticky']);
 const MAX_ORDER_QUANTITY=1e9, MAX_ORDER_PRICE=1e9, MAX_ORDER_FEES=1e9;
-
 function finitePositive(v){ const n=Number(v); return Number.isFinite(n)&&n>0?n:null; }
-function freshMark(marks,symbol){
-  const mark=marks?.[symbol];
-  const price=finitePositive(mark?.price);
-  if(!price || isStaleMark(mark)) return null;
-  if(mark?.manual===true || ['unverified','operator-attested'].includes(String(mark?.license_id||'')) || !mark?.license_id) return null;
-  if(!VERIFIED_MARK_SOURCES.has(String(mark?.source||'').toLowerCase())) return null;
-  return {price,mark};
-}
 function triggerCondition(order,price){
   if(order.orderType==='LIMIT') return order.side==='BUY' ? price<=order.limitPrice : price>=order.limitPrice;
   if(order.orderType==='STOP') return order.side==='BUY' ? price>=order.stopPrice : price<=order.stopPrice;

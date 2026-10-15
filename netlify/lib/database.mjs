@@ -170,10 +170,11 @@ export async function withDatabaseLock(scope,key,fn){
 
 
 
-export async function migrateLegacyPaperLedger(tenantId){
+export async function migrateLegacyPaperLedger(tenantId,blobLegacy={}){
   const tid=String(tenantId||'');if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');const db=await database();if(!db)return {skipped:true};
-  const marker='paper-ledger-bootstrap-owner-v1';const prior=await db.sql`SELECT marker FROM kairos_migration_markers WHERE tenant_id=${tid} AND marker=${marker} LIMIT 1`;if(prior?.length)return {alreadyMigrated:true};
-  const keys=['portfolio/transactions','portfolio/marks','broker/orders'];const legacy={};for(const key of keys){const rows=await db.sql`SELECT value FROM kairos_tenant_state WHERE tenant_id=${tid} AND key=${key} LIMIT 1`;legacy[key]=rows?.[0]?.value??null;}
+  const marker='paper-ledger-bootstrap-owner-v2';const prior=await db.sql`SELECT marker FROM kairos_migration_markers WHERE tenant_id=${tid} AND marker=${marker} LIMIT 1`;if(prior?.length)return {alreadyMigrated:true};
+  const keys=['portfolio/transactions','portfolio/marks','broker/orders'];const legacy={};for(const key of keys){const rows=await db.sql`SELECT value FROM kairos_tenant_state WHERE tenant_id=${tid} AND key=${key} LIMIT 1`;legacy[key]=blobLegacy[key]??rows?.[0]?.value??null;}
+  if(!Object.values(legacy).some(v=>Array.isArray(v)?v.length:v&&Object.keys(v).length)) return {skipped:true,reason:'NO_LEGACY_SOURCE'};
   const hash=crypto.createHash('sha256').update(JSON.stringify(legacy)).digest('hex');const client=await db.pool.connect();
   try{await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`legacy-paper:${tid}`]);await client.query('INSERT INTO paper_accounts(id,tenant_id,currency,cash_balance) VALUES($1,$2,$3,0) ON CONFLICT(tenant_id,id) DO NOTHING',[paperAccountId,tid,'USD']);
     const txs=Array.isArray(legacy['portfolio/transactions'])?legacy['portfolio/transactions']:[];
@@ -206,7 +207,22 @@ export async function replacePaperTransactions(tenantId,transactions=[]){
   }catch(e){try{await client.query('ROLLBACK');}catch{}throw e;}finally{client.release();}
 }
 export async function getPaperMarks(tenantId){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');if(!db)return clone(localPaperTenant(tid).marks);const rows=await db.sql`SELECT DISTINCT ON(symbol) symbol,price,source,asof,exchange,delay_class,license_id,point_in_time,manual FROM paper_marks WHERE tenant_id=${tid} AND account_id=${paperAccountId} ORDER BY symbol,asof DESC`;return Object.fromEntries((rows||[]).map(r=>[r.symbol,{price:Number(r.price),source:r.source,asOf:new Date(r.asof).toISOString(),exchange:r.exchange,delay_class:r.delay_class,license_id:r.license_id,point_in_time:r.point_in_time===true,manual:r.manual===true}]));}
-export async function replacePaperMarks(tenantId,marks={}){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');if(!db){localPaperTenant(tid).marks=clone(marks);return clone(marks);}await ensurePaperAccount(db,tid);for(const [symbol,m] of Object.entries(marks||{})){if(!m?.source||!m?.license_id)continue;await db.sql`INSERT INTO paper_marks(id,tenant_id,account_id,symbol,price,source,asof,exchange,delay_class,license_id,point_in_time,manual) VALUES(${crypto.randomUUID()},${tid},${paperAccountId},${symbol},${Number(m.price)},${m.source},${m.asOf}::timestamptz,${m.exchange||null},${m.delay_class||'unknown'},${m.license_id},${m.point_in_time===true},${m.manual===true}) ON CONFLICT(tenant_id,account_id,symbol,asof,source) DO NOTHING`; }return marks;}
+export async function replacePaperMarks(tenantId,marks={}){
+  const tid=String(tenantId||'');if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');
+  const db=await database();if(!db){localPaperTenant(tid).marks=clone(marks);return clone(marks);}
+  const client=await db.pool.connect();
+  try{
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`paper:${tid}`]);
+    await client.query('INSERT INTO paper_accounts(id,tenant_id,currency,cash_balance) VALUES($1,$2,$3,0) ON CONFLICT(tenant_id,id) DO NOTHING',[paperAccountId,tid,'USD']);
+    await client.query('DELETE FROM paper_marks WHERE tenant_id=$1 AND account_id=$2',[tid,paperAccountId]);
+    for(const [symbol,m] of Object.entries(marks||{})){
+      if(!m?.source||!m?.license_id||!(Number(m.price)>0)||!Number.isFinite(Date.parse(m.asOf||'')))throw new Error('INVALID_PAPER_MARK');
+      await client.query('INSERT INTO paper_marks(id,tenant_id,account_id,symbol,price,source,asof,exchange,delay_class,license_id,point_in_time,manual) VALUES($1,$2,$3,$4,$5,$6,$7::timestamptz,$8,$9,$10,$11,$12)',[crypto.randomUUID(),tid,paperAccountId,symbol,Number(m.price),m.source,m.asOf,m.exchange||null,m.delay_class||'unknown',m.license_id,m.point_in_time===true,m.manual===true]);
+    }
+    await client.query('COMMIT');return marks;
+  }catch(e){try{await client.query('ROLLBACK');}catch{}throw e;}finally{client.release();}
+}
 export async function getRelationalPaperOrders(tenantId){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');if(!db)return clone(localPaperTenant(tid).orders);const rows=await db.sql`SELECT payload FROM paper_orders WHERE tenant_id=${tid} AND account_id=${paperAccountId} ORDER BY created_at`;return (rows||[]).map(r=>r.payload||{});}
 export async function replaceRelationalPaperOrders(tenantId,orders=[]){const tid=String(tenantId||'');const db=await database();if(!tid)throw new Error('TENANT_CONTEXT_REQUIRED');const rows=Array.isArray(orders)?orders:[];if(!db){localPaperTenant(tid).orders=clone(rows);return clone(rows);}await ensurePaperAccount(db,tid);const ids=new Set(rows.map(r=>String(r.id)));for(const r of rows){const id=String(r.id||crypto.randomUUID()),side=String(r.side||'BUY').toLowerCase(),status=String(r.status||'pending').toLowerCase()==='open'?'pending':String(r.status||'pending').toLowerCase(),payload=JSON.stringify({...r,id});await db.sql`INSERT INTO paper_orders(id,tenant_id,account_id,idempotency_key,symbol,side,quantity,filled_quantity,status,execution_price,source,asof,exchange,delay_class,license_id,point_in_time,payload,created_at,updated_at) VALUES(${id},${tid},${paperAccountId},${`paper-order:${id}`},${String(r.symbol||'').toUpperCase()},${side},${Number(r.quantity||0)},${Number(status==='filled'?r.quantity:0)},${status},${Number(r.fillPrice)||null},${r.marketEvidence?.source||null},${r.marketEvidence?.asof||null},${r.marketEvidence?.exchange||null},${r.marketEvidence?.delay_class||null},${r.marketEvidence?.license_id||null},${r.marketEvidence?.point_in_time===true},${payload}::jsonb,COALESCE(${r.createdAt||null}::timestamptz,now()),now()) ON CONFLICT(tenant_id,id) DO UPDATE SET status=EXCLUDED.status,filled_quantity=EXCLUDED.filled_quantity,execution_price=EXCLUDED.execution_price,source=EXCLUDED.source,asof=EXCLUDED.asof,exchange=EXCLUDED.exchange,delay_class=EXCLUDED.delay_class,license_id=EXCLUDED.license_id,point_in_time=EXCLUDED.point_in_time,payload=EXCLUDED.payload,updated_at=now()`;}if(ids.size)await db.sql`DELETE FROM paper_orders WHERE tenant_id=${tid} AND account_id=${paperAccountId} AND id <> ALL(${[...ids]})`;else await db.sql`DELETE FROM paper_orders WHERE tenant_id=${tid} AND account_id=${paperAccountId}`;return rows;}
 

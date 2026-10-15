@@ -1,3 +1,4 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { runEvolutionCycle } from '../lib/evolution.mjs';
@@ -8,7 +9,7 @@ import { beginOperationalTrace } from '../lib/ops-trace.mjs';
 import { consumeWorkflowBudget } from '../lib/workflow-limit.mjs';
 import { assertCommercialAccess, commercialErrorJSON } from '../lib/commercial-control.mjs';
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
@@ -36,5 +37,5 @@ export default async (req,context)=>{
     try{await setJSON(jobKey,{id:job,status:'ERROR',error:String(e.message||e),finishedAt:new Date().toISOString(),elapsedMs:Date.now()-started});}catch{}
     await op.finish({status:'ERROR',error:e,jobId:job});
   }
-};
+});
 export const config={background:true};

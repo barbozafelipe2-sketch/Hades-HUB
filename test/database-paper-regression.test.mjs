@@ -40,6 +40,33 @@ try{
   for(const key of ['source','exchange','delay_class','license_id','point_in_time'])assert.equal(saved[key],marketEvidence[key]);
   assert.equal(saved.asof.toISOString(),'2026-10-14T12:00:00.000Z');
   assert.equal((await getRelationalPaperOrders('regression-b')).length,0);
+  // Tenant identifiers and full mark replacement must survive round trips.
+  await replacePaperTransactions('regression-a',[{id:'same-backup-id',type:'DEPOSIT',amount:50}]);
+  await replacePaperTransactions('regression-b',[{id:'same-backup-id',type:'DEPOSIT',amount:75}]);
+  assert.equal((await getPaperTransactions('regression-a'))[0].amount,50);
+  assert.equal((await getPaperTransactions('regression-b'))[0].amount,75);
+  const {replacePaperMarks,getPaperMarks}=await import('../netlify/lib/database.mjs');
+  const mark={price:100,source:'licensed_market_feed',license_id:'test-license',asOf:'2026-10-01T12:00:00Z'};
+  await replacePaperMarks('regression-a',{AAPL:mark});
+  await replacePaperMarks('regression-a',{AAPL:{...mark,price:80,asOf:'2026-09-01T12:00:00Z'}});
+  assert.equal((await getPaperMarks('regression-a')).AAPL.price,80);
+  await replacePaperMarks('regression-a',{});assert.deepEqual(await getPaperMarks('regression-a'),{});
+  const store=await import('../netlify/lib/store.mjs');
+  const state=await import('../netlify/lib/state.mjs');
+  const lifecycle=await import('../netlify/lib/data-lifecycle.mjs');
+  store.configurePersistenceForRequest({});
+  store.configureTenantForRequest({tenantId:'t_fixlegacy',role:'owner',userId:'fix-user'});
+  await store.setJSON('portfolio/transactions',[{id:'blob-legacy-deposit',type:'DEPOSIT',amount:90,date:'2026-10-01'}]);
+  await client.query("DELETE FROM kairos_migration_markers WHERE tenant_id=$1",[store.databaseTenantScope()]);
+  assert.equal((await state.getTransactions())[0].id,'blob-legacy-deposit');
+  const tenantId='t_fixdelete',jobId='test-delete';
+  store.configureTenantForRequest({tenantId,role:'owner',userId:'fix-user'});
+  await store.setSystemJSON('auth/tenants/'+tenantId,{id:tenantId,status:'deleting',deletionJobId:jobId});
+  await state.saveTransactions([{id:'deleted-deposit',type:'DEPOSIT',amount:123,date:'2026-10-01'}]);
+  const scope=store.databaseTenantScope();
+  await lifecycle.purgeKairosTenantData({tenantId,jobId});
+  assert.equal((await client.query('SELECT count(*)::int n FROM paper_transactions WHERE tenant_id=$1',[scope])).rows[0].n,0);
+  assert.equal((await client.query('SELECT count(*)::int n FROM paper_accounts WHERE tenant_id=$1',[scope])).rows[0].n,0);
   console.log('database-paper-regression: PASS (existing data, two runtime tenants, pending fill provenance)');
 }finally{await client.end();}
 // The application database pool is intentionally process-scoped.

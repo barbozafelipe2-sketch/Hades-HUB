@@ -87,7 +87,7 @@ assert.match(stateSrc,/withKeyLock\('ai-mirror-history'/);
 const opsSrc=read('netlify/lib/ops-trace.mjs');
 assert.match(opsSrc,/keepDays:30/);
 const perf=read('netlify/lib/mirror-performance.mjs');
-assert.match(perf,/\['SPY',benchVal\]/);
+assert.match(perf,/\['SPY',benchmark\]/);
 assert.match(perf,/benchmark:'SPY'/);
 assert.equal(read('public/app.js').includes('<span>S&P 500</span>'),false);
 assert.equal(JSON.parse(read('package.json')).version,'7.3.0');

@@ -61,7 +61,8 @@ export async function refreshWorldState(date=marketDate(),{deadlineAt,extraSymbo
         const symbol=String(i.symbol||'').toUpperCase(); const price=Number(i.price);
         if(symbol && Number.isFinite(price) && price>0){
           const source=i.source||ws?._meta?.price_authority||ws?._meta?.market_source||'unverified';
-          marks[symbol]={price,source,asOf:i.as_of||ws.generated_at||new Date().toISOString(),confidence:i.confidence||'unknown',sourceUrl:i.source_url||null};
+          const provenance=ws?._meta?.price_provenance?.[symbol]||{};
+          marks[symbol]={...provenance,...i,price,source,asOf:i.as_of||i.asOf||provenance.asof||provenance.asOf||null,license_id:i.license_id||provenance.license_id||'unverified',exchange:i.exchange||provenance.exchange||null,delay_class:i.delay_class||provenance.delay_class||'unknown',point_in_time:i.point_in_time===true&&provenance.point_in_time===true,manual:i.manual===true||i.stale===true,confidence:i.confidence||'unknown',sourceUrl:i.source_url||null};
         }
       }
       await saveMarks(marks);

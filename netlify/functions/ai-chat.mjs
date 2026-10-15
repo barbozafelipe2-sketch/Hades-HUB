@@ -1,3 +1,4 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { callTextWithFailover, callJSONWithFailover, CHAT_PROVIDER_TIMEOUT_MS } from '../lib/llm.mjs';
@@ -67,7 +68,7 @@ function mapChatError(e){
   return {error:m, http:500};
 }
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
@@ -102,7 +103,7 @@ export default async (req,context)=>{
         });
       }
       try{
-        const built=await buildPaperWalletFromAllocation({budget, focus:'all', source:'chat'});
+        const built=await buildPaperWalletFromAllocation({budget, focus:'all', source:'chat', dryRun:true});
         const summary=formatBuildSummaryText(built);
         await op.finish({status:'COMPLETE',route:'wallet-build',provider:'portfolio-build'});
         return json({
@@ -212,5 +213,5 @@ export default async (req,context)=>{
       timing:{elapsedMs:Date.now()-started}
     }, mapped.http);
   }
-};
+});
 export const config={path:'/.netlify/functions/ai-chat'};

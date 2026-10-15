@@ -1,3 +1,4 @@
+import { serializeTenantHandler } from '../lib/workspace-guard.mjs';
 import { requireSession } from '../lib/auth.mjs';
 import { json, readJSON } from '../lib/http.mjs';
 import { buildAssetEvidence } from '../lib/openai.mjs';
@@ -21,7 +22,7 @@ async function jcall(prompt,{web=false,reasoning='medium',model,role='primary'}=
   data._meta={responseId:r.responseId||null,model:r.model,provider:r.provider,citations:r.citations||[]}; return data;
 }
 
-export default async (req,context)=>{
+export default serializeTenantHandler(async (req,context)=>{
   configurePersistenceForRequest(context);
   const session=await requireSession(req); if(!session) return json({error:'UNAUTHORIZED'},401);
   if(req.method!=='POST') return json({error:'METHOD_NOT_ALLOWED'},405);
@@ -123,5 +124,5 @@ export default async (req,context)=>{
     await op.finish({status:'COMPLETE',jobId:job,asset:symbol,resultStatus:final.status,provider:finalGate?.generated?.provider||null,model:finalGate?.generated?.model||null});
     return;
   }catch(e){ await setJSON(jobKey,{id:job,status:'ERROR',asset:symbol,idempotencyKey:job,error:String(e.message||e),finishedAt:new Date().toISOString()}); await op.finish({status:'ERROR',error:e,jobId:job,asset:symbol}); return; }
-};
+});
 export const config={background:true};

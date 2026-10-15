@@ -287,7 +287,7 @@ export async function loginPrincipal(req,identifier,password){
 export async function authenticateCredentials(identifier,password){ return authenticateLegacyCredentials(identifier,password); }
 export async function verifyCredentials(identifier,password){ return !!(await authenticateLegacyCredentials(identifier,password)); }
 
-function payloadForPrincipal(principal){ return {uid:principal.userId,tid:principal.tenantId,role:principal.role||'member',iat:Date.now(),v:5,cv:Number(principal.credentialVersion)||1}; }
+function payloadForPrincipal(principal){ return {uid:principal.userId,tid:principal.tenantId,role:principal.role||'member',iat:Date.now(),jti:crypto.randomUUID(),v:5,cv:Number(principal.credentialVersion)||1}; }
 export async function createSessionToken(principal=null){
   let p=principal; if(!p){ const user=await bootstrapCommercialAuth(); if(!user) throw new Error('AUTH_NOT_BOOTSTRAPPED'); p={userId:user.id,tenantId:user.tenantId,role:user.role,credentialVersion:Number(user.credentialVersion)||1}; }
   const payload=Buffer.from(JSON.stringify(payloadForPrincipal(p))).toString('base64url');
@@ -308,9 +308,10 @@ async function requireAppSession(req){
   try{
     const data=JSON.parse(Buffer.from(payload,'base64url').toString('utf8')); const iat=Number(data?.iat),now=Date.now();
     if(data.v!==5||!data.uid||!data.tid||!Number.isFinite(iat)||iat>now+SESSION_CLOCK_SKEW_MS||now-iat>SESSION_MAX_AGE_MS) return null;
+    if(!data.jti || await getSystemJSON('auth/revoked-sessions/'+data.jti,null))return null;
     const user=await getUserRecord(data.uid); if(!user||user.status!=='active'||user.tenantId!==data.tid) return null;
     const tenant=await getTenant(data.tid); if(!tenant||tenant.status!=='active'||Number(data.cv)!==(Number(user.credentialVersion)||1)) return null;
-    return {userId:user.id,tenantId:user.tenantId,role:user.role||'member',username:user.username,email:user.email||'',iat,v:5,cv:Number(user.credentialVersion)||1,authProvider:user.authProvider||'legacy',identityUserId:user.identityUserId||null};
+    return {userId:user.id,tenantId:user.tenantId,role:user.role||'member',username:user.username,email:user.email||'',iat,jti:data.jti,v:5,cv:Number(user.credentialVersion)||1,authProvider:user.authProvider||'legacy',identityUserId:user.identityUserId||null};
   }catch{return null}
 }
 export async function requireSession(req){
@@ -414,4 +415,8 @@ export async function publicAuthState(session=null){
   const legal=commercialLegalConfig(); const identityConfigured=legal.identityConfigured===true; let user=null,tenant=null;
   if(session?.userId){ user=await getUserRecord(session.userId); tenant=await getTenant(session.tenantId); }
   return {mode:'commercial_multi_tenant',authProvider:session?.authProvider||null,user:user?{id:user.id,username:user.username,email:user.email||'',role:user.role||'member'}:null,tenant:tenant?{id:tenant.id,name:tenant.name,plan:tenant.plan||'private',status:tenant.status}:null,username:user?.username||null,mustChangeDefault:!!user?.mustChangeDefault,sessionMaxAgeHours:Math.round((SESSION_MAX_AGE_MS/3600000)*10)/10,signupAllowed:legal.signupAllowed&&identityConfigured,identityConfigured,billingReady:legal.billingConfigured,billingRequired:legal.billingRequired,legalEntity:legal.legalEntity||null,termsVersion:legal.termsVersion||null,riskDisclosureVersion:legal.riskVersion||null,termsUrl:legal.termsUrl||null,riskDisclosureUrl:legal.riskUrl||null,privacyUrl:legal.privacyUrl||null,release:{ready:legal.releaseGate?.ready===true,productMode:legal.releaseGate?.productMode||'paper_research',realMoneyExecution:legal.releaseGate?.realMoneyExecution===true,publicReleaseApproved:legal.releaseGate?.publicReleaseApproved===true,previewSmokeApproved:legal.releaseGate?.previewSmokeApproved===true},persistence:persistenceStatus(),tenantContext:currentTenantContext()?true:false,legacyAuthEnabled:legacyAuthEnabled()};
+}
+
+export async function revokeAppSession(session){
+  if(session?.jti)await setSystemJSON('auth/revoked-sessions/'+session.jti,{revokedAt:new Date().toISOString(),expiresAt:new Date(Number(session.iat)+SESSION_MAX_AGE_MS).toISOString()});
 }

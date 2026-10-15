@@ -1,3 +1,4 @@
+import { closes, licensedMarketConfigured } from './market-truth.mjs';
 import { getResearchSeries, seriesForSymbol } from './market-research-series.mjs';
 import { twelveConfigured, twelveHistoricalClose } from './twelve-data.mjs';
 import { finnhubConfigured, finnhubHistoricalClose } from './finnhub.mjs';
@@ -22,6 +23,14 @@ function providerOrder(symbol){
 }
 export async function historicalClose(symbol,date,{maxLagDays=7,skipCache=false}={}){
   const target=String(date||'').slice(0,10); if(!validDate(target)) throw new Error('HISTORICAL_DATE_INVALID');
+  if(licensedMarketConfigured()){
+    try{
+      const from=new Date(Date.parse(`${target}T00:00:00Z`)-maxLagDays*86400000).toISOString().slice(0,10);
+      const rows=await closes(symbol,from,target);
+      const pt=rows.filter(p=>String(p.asof||'').slice(0,10)<=target).sort((a,b)=>Date.parse(a.asof)-Date.parse(b.asof)).at(-1);
+      if(pt) return {...pt,symbol:String(symbol).toUpperCase(),date:pt.asof.slice(0,10),asOf:pt.asof,requestedDate:target,exact:pt.asof.slice(0,10)===target,cacheHit:false};
+    }catch{}
+  }
   if(!skipCache){
     try{ const hit=cachedPoint(await getResearchSeries(),symbol,target,maxLagDays); if(hit) return hit; }catch{}
   }

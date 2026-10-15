@@ -1,5 +1,5 @@
 function norm(v){ return String(v||'').trim().toUpperCase(); }
-function ageHours(iso){ const t=Date.parse(iso||''); return Number.isFinite(t)?Math.max(0,(Date.now()-t)/3600000):Infinity; }
+function ageHours(iso){ const t=Date.parse(iso||''); return Number.isFinite(t)&&t<=Date.now()+300000?Math.max(0,(Date.now()-t)/3600000):Infinity; }
 function hostOf(url){ try{return new URL(String(url||'')).hostname.toLowerCase();}catch{return null;} }
 function uniqueHosts(assetEvidence){
   const urls=[];
