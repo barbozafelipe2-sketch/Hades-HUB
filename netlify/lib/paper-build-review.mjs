@@ -45,7 +45,10 @@ export async function confirmPaperBuild(session,planId){
         const approved=freshMark(plan.marks,buy.symbol);
         if(!approved)throw new Error('LICENSED_FRESH_MARK_REQUIRED');
         const latest=currentMarks[buy.symbol];
-        if(latest&&(!freshMark(currentMarks,buy.symbol)||Number(latest.price)!==buy.unitPrice))throw new Error('PAPER_BUILD_PRICE_CHANGED');
+        if(latest){
+          const verified=freshMark(currentMarks,buy.symbol);
+          if(!verified || Number(latest.price)!==buy.unitPrice || String(latest.asOf||'')!==String(approved.mark.asOf||'') || String(latest.source||'')!==String(approved.mark.source||'') || String(latest.license_id||'')!==String(approved.mark.license_id||''))throw new Error('PAPER_BUILD_PRICE_CHANGED');
+        }
       }
       await saveTransactions([...current,...plan.transactions]);
     }
