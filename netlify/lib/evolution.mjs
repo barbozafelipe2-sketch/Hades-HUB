@@ -1,6 +1,7 @@
 import { latestEligibleOutcome } from './outcome-eligibility.mjs';
 import { getDecisions,getEvolutionState,saveEvolutionState } from './state.mjs';
 import { runGuardedJSONTask, publicGateMeta } from './ai-gate.mjs';
+import {independentHoldoutReadiness,assessIndependentChallenger,localEvidenceFingerprint,MIN_TOTAL_OUTCOMES,VALIDATION_VERSION} from './learning-evidence.mjs';
 
 export const DEFAULT_STRATEGY={
   minConfidence:'LOW',
@@ -62,8 +63,8 @@ export function evaluateStrategy(decisions,strategy){
   const score=hitRate-(1-coverage)*0.15;
   return {sample:scored.length,eligible:eligible.length,correct,hitRate,coverage,score};
 }
-/** Time-ordered scored ADD/REDUCE decisions: earlier = inspire, later = holdout (≈70/30). */
-export function splitScoredHoldout(decisions,{inspireShare=0.3}={}){
+/** First 70% trains proposals; later 30% remains an unseen holdout. */
+export function splitScoredHoldout(decisions,{inspireShare=0.7}={}){
   const scored=decisions
     .map(d=>({d,o:latestScoredOutcome(d)}))
     .filter(x=>x.o && ['ADD','REDUCE'].includes(String(x.d?.final?.status||'')))
@@ -99,6 +100,7 @@ function validateChallenger(data){
 }
 
 export async function runEvolutionCycle({allowPromote=false,totalBudgetMs=90000,deadlineAt}={}){
+  if(allowPromote)throw new Error('EVOLUTION_AUTOPROMOTE_FORBIDDEN');
   const decisions=await getDecisions(); let evo=await getEvolutionState();
   const championPolicy=normalizeStrategy(evo?.champion?.policy||DEFAULT_STRATEGY);
   const split=splitScoredHoldout(decisions);
@@ -110,16 +112,17 @@ export async function runEvolutionCycle({allowPromote=false,totalBudgetMs=90000,
   const championHoldout=evaluateStrategy(holdoutSet,championPolicy);
   const championMetrics={...championHoldout,inspire:championInspire,holdout:championHoldout,maturedCount:split.maturedCount,inspireCount:split.inspireCount,holdoutCount:split.holdoutCount};
   const now=new Date().toISOString();
-  if(split.maturedCount<MATURITY_THRESHOLD){
-    evo={...evo,champion:{...(evo.champion||{}),policy:championPolicy,metrics:championMetrics},challenger:null,lastCycleAt:now,lastObservationAt:now,diagnosis,split:{maturedCount:split.maturedCount,inspireCount:split.inspireCount,holdoutCount:split.holdoutCount,threshold:MATURITY_THRESHOLD},history:[...(evo.history||[]).slice(-49),{at:now,event:'OBSERVED',reason:'INSUFFICIENT_SCORED_OUTCOMES',sample:split.maturedCount,threshold:MATURITY_THRESHOLD}]};
-    await saveEvolutionState(evo); return {...evo,cycleStatus:'INSUFFICIENT_DATA'};
+  const readiness=independentHoldoutReadiness(split);
+  if(split.maturedCount<MATURITY_THRESHOLD||!readiness.ready){
+    evo={...evo,champion:{...(evo.champion||{}),policy:championPolicy,metrics:championMetrics},challenger:null,lastCycleAt:now,lastObservationAt:now,diagnosis,split:{maturedCount:split.maturedCount,inspireCount:split.inspireCount,holdoutCount:split.holdoutCount,threshold:MIN_TOTAL_OUTCOMES},history:[...(evo.history||[]).slice(-49),{at:now,event:'OBSERVED',reason:'INDEPENDENT_HOLDOUT_REQUIRED',blockers:readiness.blockers,sample:split.maturedCount,threshold:MIN_TOTAL_OUTCOMES}]};
+    await saveEvolutionState(evo); return {...evo,validation:readiness,cycleStatus:'INSUFFICIENT_DATA'};
   }
   const task='Propose one conservative challenger policy for KAIROS Decision Review based on measured decision outcomes. The challenger may only modify the supplied bounded policy fields. It must not add new capabilities, bypass audits, or loosen evidence requirements without justification.';
   const prompt=`${task}\nReturn ONLY JSON:{"name":"...","hypothesis":"...","policy":{"minConfidence":"LOW|MODERATE|HIGH","blockLowSourceQuality":true|false,"requireAllAttacksPass":true,"maxSingleAssetPctForAdd":number,"preferAbstainWhenUnknowns":integer,"description":"..."},"expected_tradeoff":"..."}.\nCURRENT_CHAMPION:${JSON.stringify(championPolicy)}\nCHAMPION_INSPIRE_METRICS:${JSON.stringify(championInspire)}\nDIAGNOSIS_FROM_TRAINING_SLICE:${JSON.stringify(diagnosis)}\nNOTE: Promote eligibility is judged on the later HOLDOUT slice, not the inspire set.`;
   const result=await runGuardedJSONTask({task,prompt,role:'learning_lab',criteria:'Challenger is conservative, bounded to policy fields, never disables attack checks, and is justified by measured failures.',validate:validateChallenger,totalBudgetMs,deadlineAt,maxRedo:1,timeoutTag:'EVOLUTION_TIMEOUT'});
   const gate=publicGateMeta(result);
   if(!result?.approved){
-    evo={...evo,champion:{...(evo.champion||{}),policy:championPolicy,metrics:championMetrics},challenger:{status:'REJECTED_BY_FINAL_GATE',gate},lastCycleAt:now,lastObservationAt:now,diagnosis,split:{maturedCount:split.maturedCount,inspireCount:split.inspireCount,holdoutCount:split.holdoutCount,threshold:MATURITY_THRESHOLD},history:[...(evo.history||[]).slice(-49),{at:now,event:'CHALLENGER_REJECTED',gate}]};
+    evo={...evo,champion:{...(evo.champion||{}),policy:championPolicy,metrics:championMetrics},challenger:{status:'REJECTED_BY_FINAL_GATE',gate},lastCycleAt:now,lastObservationAt:now,diagnosis,split:{maturedCount:split.maturedCount,inspireCount:split.inspireCount,holdoutCount:split.holdoutCount,threshold:MIN_TOTAL_OUTCOMES},history:[...(evo.history||[]).slice(-49),{at:now,event:'CHALLENGER_REJECTED',gate}]};
     await saveEvolutionState(evo); return {...evo,cycleStatus:'CHALLENGER_REJECTED'};
   }
   const proposed=normalizeStrategy(result.generated.data.policy); proposed.requireAllAttacksPass=true;
@@ -127,11 +130,10 @@ export async function runEvolutionCycle({allowPromote=false,totalBudgetMs=90000,
   const challengerHoldout=evaluateStrategy(holdoutSet,proposed);
   const challengerMetrics={...challengerHoldout,inspire:challengerInspire,holdout:challengerHoldout,maturedCount:split.maturedCount,inspireCount:split.inspireCount,holdoutCount:split.holdoutCount};
   // Eligibility MUST win on holdout (not only inspire).
-  const improvement=(challengerHoldout.score??-Infinity)-(championHoldout.score??-Infinity);
-  const better=challengerHoldout.sample>=MATURITY_THRESHOLD
-    && challengerHoldout.eligible>=Math.max(3,Math.floor(championHoldout.eligible*0.45))
-    && improvement>=0.03
-    && (challengerHoldout.hitRate??0)>=(championHoldout.hitRate??0);
+  const assessment=assessIndependentChallenger({split,championPolicy,challengerPolicy:proposed,evaluateStrategy});
+  const improvement=assessment.improvement;
+  const better=assessment.better;
+  const validationFingerprint=localEvidenceFingerprint(split,championPolicy,proposed);
   const challenger={
     version:`candidate-${Date.now()}`,
     name:String(result.generated.data.name||'Challenger').slice(0,100),
@@ -141,21 +143,19 @@ export async function runEvolutionCycle({allowPromote=false,totalBudgetMs=90000,
     championMetrics,
     improvement,
     better,
+    validationVersion:VALIDATION_VERSION,
+    validationFingerprint,
+    validationBlockers:assessment.blockers,
     gate,
     status:better?'ELIGIBLE':'FAILED_BENCHMARK',
     holdoutImprovement:improvement,
     holdoutHitRate:challengerHoldout.hitRate,
     championHoldoutHitRate:championHoldout.hitRate
   };
-  let promoted=false;
-  if(better && allowPromote){
-    evo.champion={version:`${Number(String(evo?.champion?.version||'1.0').split('.')[0])||1}.${Date.now()}`,name:challenger.name,policy:proposed,metrics:challengerMetrics,promotedAt:now,sourceChallenger:challenger.version};
-    challenger.status='PROMOTED'; promoted=true;
-  } else {
-    evo.champion={...(evo.champion||{}),policy:championPolicy,metrics:championMetrics};
-  }
-  evo={...evo,challenger,lastCycleAt:now,lastObservationAt:now,diagnosis,split:{maturedCount:split.maturedCount,inspireCount:split.inspireCount,holdoutCount:split.holdoutCount,threshold:MATURITY_THRESHOLD},history:[...(evo.history||[]).slice(-49),{at:now,event:promoted?'PROMOTED':better?'CHALLENGER_READY':'CHALLENGER_FAILED',improvement,champion:championHoldout,challenger:challengerHoldout,holdout:true}]};
-  await saveEvolutionState(evo); return {...evo,cycleStatus:promoted?'PROMOTED':better?'READY_FOR_PROMOTION':'NO_IMPROVEMENT'};
+  // Stage 4: model and background runs never promote; owner revalidation is mandatory.
+  evo.champion={...(evo.champion||{}),policy:championPolicy,metrics:championMetrics};
+  evo={...evo,challenger,lastCycleAt:now,lastObservationAt:now,diagnosis,split:{maturedCount:split.maturedCount,inspireCount:split.inspireCount,holdoutCount:split.holdoutCount,threshold:MIN_TOTAL_OUTCOMES},history:[...(evo.history||[]).slice(-49),{at:now,event:better?'CHALLENGER_READY':'CHALLENGER_FAILED',improvement,champion:championHoldout,challenger:challengerHoldout,holdout:true,validationVersion:VALIDATION_VERSION}]};
+  await saveEvolutionState(evo); return {...evo,cycleStatus:better?'READY_FOR_PROMOTION':'NO_IMPROVEMENT'};
 }
 
 export async function discardChallenger(){
