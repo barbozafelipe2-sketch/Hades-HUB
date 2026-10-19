@@ -102,6 +102,20 @@ export function configureTenantForRequest(tenant){
   requestContext.enterWith({storageScope:null,dataNamespace:production()?null:'local',tenant:tenantValue});
   return tenantValue;
 }
+
+/**
+ * Run a trusted server operation in a separate async tenant context.
+ * Never mutate the invoking request's context or copy its artifact revision.
+ * Only server modules may call this; tenant IDs must come from trusted records.
+ */
+export function runInTenantContext(tenantId, fn){
+  if(typeof fn!=='function') throw new Error('TENANT_CONTEXT_CALLBACK_REQUIRED');
+  const parent=activeContext();
+  if(!parent) throw new Error('TENANT_CONTEXT_PARENT_REQUIRED');
+  const id=cleanTenantId(typeof tenantId==='string'?tenantId:tenantId?.tenantId);
+  return requestContext.run({...parent,tenant:{tenantId:id,userId:'system',role:'system'},artifactRevision:null},fn);
+}
+
 export function currentTenantContext(){ const t=activeContext()?.tenant; return t?{...t}:null; }
 export function databaseTenantScope(){ return scopedTenantId(tenantIdRequired()); }
 export function relationalPaperLedgerEnabled(){ return dataBackend()==='postgres'; }

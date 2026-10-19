@@ -1,8 +1,9 @@
 /**
- * Stage 2/5 — per-tenant consent and server-derived evidence.
+ * Stage 2/5 consent records, also used by the Stage 3 private collector.
  * Records are tenant-scoped draft/* state (Postgres in hosted deployments).
  * This does not publish or pool cross-tenant information.
  */
+import crypto from 'node:crypto';
 import {getJSON,setJSON,deleteKey,withKeyLock} from './store.mjs';
 import {getDecisions} from './state.mjs';
 import {latestEligibleOutcome} from './outcome-eligibility.mjs';
@@ -14,16 +15,17 @@ export const GLOBAL_TRACE_CONSENT_VERSION=1;
 export async function globalTraceConsent(){
   const record=await getJSON(CONSENT_KEY,null);
   return {enabled:record?.status==='opted_in' && record?.version===GLOBAL_TRACE_CONSENT_VERSION,
-    version:GLOBAL_TRACE_CONSENT_VERSION, updatedAt:record?.updatedAt||null};
+    version:GLOBAL_TRACE_CONSENT_VERSION, updatedAt:record?.updatedAt||null, revision:record?.revision||null};
 }
 export async function setGlobalTraceConsent(enabled){
   if(typeof enabled!=='boolean')throw new Error('GLOBAL_TRACE_CONSENT_INVALID');
   return withKeyLock('global-trace-consent',async()=>{
     const updatedAt=new Date().toISOString();
+    const revision=crypto.randomUUID();
     // Revoke first; never leave old private metrics available after an opt-out.
     if(!enabled)await deleteKey(METRIC_KEY);
-    await setJSON(CONSENT_KEY,{status:enabled?'opted_in':'opted_out',version:GLOBAL_TRACE_CONSENT_VERSION,updatedAt});
-    return {enabled,version:GLOBAL_TRACE_CONSENT_VERSION,updatedAt};
+    await setJSON(CONSENT_KEY,{status:enabled?'opted_in':'opted_out',version:GLOBAL_TRACE_CONSENT_VERSION,updatedAt,revision});
+    return {enabled,version:GLOBAL_TRACE_CONSENT_VERSION,updatedAt,revision};
   });
 }
 export function derivePrivateTraceMetrics(decisions){
